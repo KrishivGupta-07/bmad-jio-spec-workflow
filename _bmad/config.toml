@@ -11,6 +11,7 @@
 # ─────────────────────────────────────────────────────────────────
 
 [core]
+project_name = "BMAD_jio_test"
 document_output_language = "English"
 output_folder = "_bmad-output"
 

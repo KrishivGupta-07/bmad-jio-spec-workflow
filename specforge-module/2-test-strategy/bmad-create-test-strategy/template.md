@@ -19,9 +19,16 @@ _This document builds collaboratively through step-by-step discovery. Sections a
 | integration | | |
 | e2e | | |
 
-## Primary Runner Command
+## Environment Setup
 
-<!-- Single executable shell line — runner agent executes this verbatim from project root -->
+<!-- Commands run ONCE per environment, before any test iteration. One executable shell command per line. Idempotent where possible. -->
+
+```
+```
+
+## Runner Command
+
+<!-- Single executable shell line — runs EVERY iteration from project root. MUST include structured-output flag with path under .specforge/ -->
 
 ```
 ```
