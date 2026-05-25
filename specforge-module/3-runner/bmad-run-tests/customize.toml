@@ -1,0 +1,18 @@
+# DO NOT EDIT -- overwritten on every update.
+#
+# Workflow customization surface for bmad-run-tests.
+
+[workflow]
+
+activation_steps_prepend = []
+activation_steps_append = []
+
+persistent_facts = [
+  "file:{project-root}/**/project-context.md",
+  "Never edit src/, tests, or docs — read and execute only.",
+  "Only step-04-write-report writes {specforge_artifacts}/last-run.json.",
+  "Loop cap: 5 iterations — step-05-decide-loop enforces green/handoff/halt.",
+  "On failure with iteration < 5: handoff to bmad-agent-dev (Amelia) — bmm has no patch workflow.",
+]
+
+on_complete = ""

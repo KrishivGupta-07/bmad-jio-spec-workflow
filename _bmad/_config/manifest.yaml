@@ -1,21 +1,29 @@
 installation:
   version: 6.7.1
   installDate: 2026-05-25T05:34:18.890Z
-  lastUpdated: 2026-05-25T05:34:18.890Z
+  lastUpdated: 2026-05-25T06:05:52.415Z
 modules:
   - name: core
     version: 6.7.1
     installDate: 2026-05-25T05:34:18.874Z
-    lastUpdated: 2026-05-25T05:34:18.889Z
+    lastUpdated: 2026-05-25T06:05:52.414Z
     source: built-in
     npmPackage: null
     repoUrl: null
   - name: bmm
     version: 6.7.1
     installDate: 2026-05-25T05:34:18.859Z
-    lastUpdated: 2026-05-25T05:34:18.890Z
+    lastUpdated: 2026-05-25T06:05:52.414Z
     source: built-in
     npmPackage: null
     repoUrl: null
+  - name: specforge
+    version: 1.0.0
+    installDate: 2026-05-25T06:05:52.396Z
+    lastUpdated: 2026-05-25T06:05:52.415Z
+    source: custom
+    npmPackage: null
+    repoUrl: null
+    localPath: /Users/krishivgupta/BMAD_jio_test/specforge-module
 ides:
   - cursor

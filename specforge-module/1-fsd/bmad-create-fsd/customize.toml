@@ -1,0 +1,19 @@
+# DO NOT EDIT -- overwritten on every update.
+#
+# Workflow customization surface for bmad-create-fsd.
+
+[workflow]
+
+activation_steps_prepend = []
+activation_steps_append = []
+
+persistent_facts = [
+  "file:{project-root}/**/project-context.md",
+  "FSD contains functional requirements only — no tech stack, no test cases.",
+  "Every FR must have FR-NNN ID and at least one Given/When/Then acceptance criterion.",
+]
+
+# Default output path for the FSD document
+output_file = "{planning_artifacts}/fsd.md"
+
+on_complete = ""

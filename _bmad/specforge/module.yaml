@@ -1,0 +1,49 @@
+code: specforge
+name: "SpecForge"
+description: "FSD + Test Strategy + test-execution loop on top of bmm"
+
+# Variables from Core Config inserted:
+## user_name
+## communication_language
+## document_output_language
+## output_folder
+
+user_skill_level:
+  prompt:
+    - "What is your development experience level?"
+    - "This affects how agents explain concepts in chat."
+  default: "intermediate"
+  result: "{value}"
+  single-select:
+    - value: "beginner"
+      label: "Beginner - Explain things clearly"
+    - value: "intermediate"
+      label: "Intermediate - Balance detail with speed"
+    - value: "expert"
+      label: "Expert - Be direct and technical"
+
+planning_artifacts:
+  prompt: "Where should planning artifacts be stored? (PRD, FSD, test-strategy, architecture)"
+  default: "{output_folder}/planning-artifacts"
+  result: "{project-root}/{value}"
+
+implementation_artifacts:
+  prompt: "Where should implementation artifacts be stored? (Sprint status, stories, reviews)"
+  default: "{output_folder}/implementation-artifacts"
+  result: "{project-root}/{value}"
+
+specforge_artifacts:
+  prompt: "Where should specforge runtime artifacts be stored? (last-run.json, test reports)"
+  default: "{output_folder}/specforge"
+  result: "{project-root}/{value}"
+
+project_knowledge:
+  prompt: "Where should long-term project knowledge be stored? (docs, research, references)"
+  default: "docs"
+  result: "{project-root}/{value}"
+
+directories:
+  - "{planning_artifacts}"
+  - "{implementation_artifacts}"
+  - "{specforge_artifacts}"
+  - "{project_knowledge}"

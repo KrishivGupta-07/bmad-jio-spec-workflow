@@ -1,0 +1,6 @@
+module,skill,display-name,menu-code,description,action,args,phase,preceded-by,followed-by,required,output-location,outputs
+SpecForge,_meta,,,,,,,,,false,https://docs.bmad-method.org/llms.txt,
+SpecForge,bmad-create-fsd,Create FSD,CF,Transform bmm PRD into an FSD with FR-IDs and Given/When/Then acceptance criteria.,,,3-solutioning,bmad-prd,bmad-create-test-strategy,false,planning_artifacts,fsd
+SpecForge,bmad-create-test-strategy,Create Test Strategy,CT,Build test-strategy from FSD and architecture with coverage matrix and primary runner command.,,,3-solutioning,bmad-create-fsd,bmad-run-tests,false,planning_artifacts,test strategy
+SpecForge,bmad-agent-runner,Test Runner,RX,Deterministic test executor (Rex). Runs test strategy command and writes last-run.json. Never edits code.,,,4-implementation,bmad-create-test-strategy,,false,specforge_artifacts,last-run report
+SpecForge,bmad-run-tests,Run Tests,RT,Execute primary runner command parse failures decide green/handoff/halt loop (5-iteration cap).,,,4-implementation,bmad-create-test-strategy,,false,specforge_artifacts,last-run report

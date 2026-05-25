@@ -1,0 +1,19 @@
+# DO NOT EDIT -- overwritten on every update.
+#
+# Workflow customization surface for bmad-create-test-strategy.
+
+[workflow]
+
+activation_steps_prepend = []
+activation_steps_append = []
+
+persistent_facts = [
+  "file:{project-root}/**/project-context.md",
+  "Every FR-ID from the FSD must appear in the Coverage Matrix.",
+  "Primary runner command must be a single executable shell line the runner executes verbatim.",
+  "Test naming convention: test_FR_NNN_* for FR traceability in last-run.json.",
+]
+
+output_file = "{planning_artifacts}/test-strategy.md"
+
+on_complete = ""
