@@ -8,7 +8,7 @@ specforge sits on top of an existing BMAD installation. It does not replace bmm 
 
 The canonical source lives in `specforge-module/` at the repo root. The BMAD installer copies it into `_bmad/specforge/` and compiles it to runtime skills under `.agents/skills/`. Edits go to `specforge-module/`, never to `_bmad/specforge/` or `.agents/skills/`.
 
-## What it adds, in plain terms
+## What it adds
 
 **An FSD (Functional Spec Document) workflow.** bmm's PRD is product-flavored — user stories, market context, success metrics. The FSD takes that PRD and translates each user story into testable functional requirements with explicit IDs (FR-001, FR-002, …) and Given/When/Then acceptance criteria. The FSD is what the architect and test author actually build against. Tech choices and test cases are forbidden in the FSD by design — those belong downstream.
 
