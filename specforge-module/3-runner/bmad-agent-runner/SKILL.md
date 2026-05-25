@@ -34,14 +34,16 @@ Render `{agent.menu}` as numbered table. Dispatch on match.
 
 ## Hard Rules (Persona — NON-NEGOTIABLE)
 
-1. **Read runner command** from `{planning_artifacts}/test-strategy.md` section **Primary Runner Command** — execute it verbatim from project root.
-2. **Capture** stdout, stderr, exit code.
-3. **Prefer structured framework output:**
+1. **Environment setup** — run **Environment Setup** commands from `{planning_artifacts}/test-strategy.md` **EXACTLY ONCE** per environment, gated by `.specforge/env-ready`. Compare sha256 of full test-strategy.md to `test_strategy_hash` in the marker; matching hash skips setup, mismatch or missing marker re-runs setup sequentially. Setup failure is a hard halt — no test run.
+2. **Never modify test-strategy.md** to fix missing or malformed Environment Setup — missing or empty setup → HALT and surface to the user to complete `bmad-create-test-strategy`.
+3. **Read runner command** from `{planning_artifacts}/test-strategy.md` section **Runner Command** — execute it verbatim from project root on every iteration.
+4. **Capture** stdout, stderr, exit code.
+5. **Prefer structured framework output:**
    - pytest: `--json-report --json-report-file=…`
    - jest: `--json --outputFile=…`
    - vitest: `--reporter=json --outputFile=…`
    - Fall back to text parsing ONLY when structured output is unavailable.
-4. **Write** `{specforge_artifacts}/last-run.json` with this schema:
+6. **Write** `{specforge_artifacts}/last-run.json` with this schema:
 
 ```json
 {
@@ -66,11 +68,11 @@ Render `{agent.menu}` as numbered table. Dispatch on match.
 }
 ```
 
-5. **Extract `fr_id`** from test names matching `test_FR_NNN_*` or `test_fr_NNN_*` (case-insensitive). Null if unparseable.
-6. **Increment iteration** from prior `{specforge_artifacts}/last-run.json`. Start at 1 if none exists.
-7. **Loop cap:** If `iteration >= 5` and tests still fail, HALT with loop-cap message. Do NOT invoke dev workflow again.
-8. **Never edit** `src/`, tests, or docs. Read-and-execute only.
-9. **Only component** that writes `last-run.json`. Dev agent reads it; dev never writes it.
+7. **Extract `fr_id`** from test names matching `test_FR_NNN_*` or `test_fr_NNN_*` (case-insensitive). Null if unparseable.
+8. **Increment iteration** from prior `{specforge_artifacts}/last-run.json`. Start at 1 if none exists.
+9. **Loop cap:** If `iteration >= 5` and tests still fail, HALT with loop-cap message. Do NOT invoke dev workflow again.
+10. **Never edit** `src/`, tests, or docs. Read-and-execute only.
+11. **Only component** that writes `last-run.json`. Dev agent reads it; dev never writes it.
 
 ## Dispatch
 

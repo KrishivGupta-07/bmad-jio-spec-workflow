@@ -4,7 +4,7 @@
 
 - 🛑 NEVER edit src/, tests, or docs
 - 📖 CRITICAL: Read complete step file before acting
-- ✅ Load test-strategy and extract primary runner command
+- ✅ Load test-strategy and extract runner command
 - ✅ Ensure `{specforge_artifacts}/` directory exists
 - ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
 
@@ -32,21 +32,27 @@ Search:
 
 **HALT** — do not proceed.
 
-### 2. Extract Primary Runner Command
+### 2. Extract Runner Command
 
-From test-strategy.md section **Primary Runner Command**, extract the single executable shell line.
+From test-strategy.md section **Runner Command**, extract the single executable shell line.
 
 **If missing or empty:**
 
-> Test strategy is missing Primary Runner Command. Complete `bmad-create-test-strategy` step-04 first.
+> Test strategy is missing Runner Command. Complete `bmad-create-test-strategy` step-04 first.
 
 **HALT** — do not proceed.
 
 Store as `{{primary_runner_command}}`.
 
-### 3. Ensure Output Directory
+### 3. Ensure Output Directories
 
 Create `{specforge_artifacts}/` if it does not exist.
+
+Create `.specforge/` at project root if it does not exist:
+
+```bash
+mkdir -p .specforge
+```
 
 ### 4. Compute Iteration Number
 
@@ -57,7 +63,7 @@ Read `{specforge_artifacts}/last-run.json` if present:
 
 Report to user:
 
-- Primary runner command to execute
+- Runner command to execute
 - Current iteration number (`{{next_iteration}}` of 5 max)
 - Prior run summary if last-run.json existed
 
@@ -70,10 +76,13 @@ HALT — wait for [C].
 ## SUCCESS METRICS:
 
 ✅ Test strategy loaded
-✅ Primary runner command extracted
+✅ Runner command extracted
 ✅ specforge_artifacts directory ready
+✅ `.specforge/` directory exists (created with `mkdir -p` if needed) so subsequent steps can write env-ready and report files
 ✅ Iteration number computed
 
 ## NEXT STEP:
 
-After [C], load `./step-02-execute.md`.
+After [C], load `./step-01b-ensure-environment.md`.
+
+Next: step-01b-ensure-environment will handle setup commands. Step-01 must NOT execute setup commands itself.

@@ -1,5 +1,15 @@
 # Step 2: Execute Tests
 
+## PRECONDITION (DEFENSIVE):
+
+**If** `{project-root}/.specforge/env-ready` does not exist:
+
+> Environment not prepared — step-01b-ensure-environment did not run or failed.
+
+**HALT** — do not execute tests.
+
+Under normal flow, step-01b always runs immediately before this step and writes env-ready on success.
+
 ## MANDATORY EXECUTION RULES (READ FIRST):
 
 - 🛑 NEVER edit src/, tests, or docs
