@@ -68,3 +68,7 @@ tests/
 | FR-ID | Test Level | Notes |
 | --- | --- | --- |
 | FR-001 | unit / integration / e2e | |
+
+## Test Naming Convention (REQUIRED for SpecForge)
+
+<!-- All automated tests MUST use test_FR_NNN_* naming so bmad-run-tests can extract fr_id for dev handoff. QA agents (bmad-qa-generate-e2e-tests) must follow this pattern when generating tests. -->
