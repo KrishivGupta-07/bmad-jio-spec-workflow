@@ -1,0 +1,18 @@
+{
+  "name": "specforge",
+  "description": "FSD + Test Strategy + test-execution loop on top of bmm",
+  "plugins": [
+    {
+      "name": "specforge",
+      "description": "Functional spec documents, test strategy with FR-ID coverage, and deterministic test-execution loop",
+      "source": ".",
+      "version": "1.0.0",
+      "skills": [
+        "1-fsd/bmad-create-fsd",
+        "2-test-strategy/bmad-create-test-strategy",
+        "3-runner/bmad-agent-runner",
+        "3-runner/bmad-run-tests"
+      ]
+    }
+  ]
+}

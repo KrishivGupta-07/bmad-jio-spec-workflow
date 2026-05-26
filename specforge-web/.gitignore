@@ -1,0 +1,9 @@
+backend/.env
+backend/specforge-web.db
+backend/__pycache__/
+backend/**/*.pyc
+backend/*.egg-info/
+frontend/node_modules/
+frontend/dist/
+workspace/*/
+!workspace/.gitkeep

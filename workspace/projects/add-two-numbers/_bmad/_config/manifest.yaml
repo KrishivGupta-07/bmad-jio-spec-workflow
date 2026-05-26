@@ -1,0 +1,29 @@
+installation:
+  version: 6.8.0
+  installDate: 2026-05-26T06:56:31.357Z
+  lastUpdated: 2026-05-26T06:56:31.357Z
+modules:
+  - name: core
+    version: 6.8.0
+    installDate: 2026-05-26T06:56:31.281Z
+    lastUpdated: 2026-05-26T06:56:31.355Z
+    source: built-in
+    npmPackage: null
+    repoUrl: null
+  - name: bmm
+    version: 6.8.0
+    installDate: 2026-05-26T06:56:31.327Z
+    lastUpdated: 2026-05-26T06:56:31.355Z
+    source: built-in
+    npmPackage: null
+    repoUrl: null
+  - name: specforge
+    version: 1.0.0
+    installDate: 2026-05-26T06:56:31.336Z
+    lastUpdated: 2026-05-26T06:56:31.357Z
+    source: custom
+    npmPackage: null
+    repoUrl: null
+    localPath: /Users/krishivgupta/BMAD_jio_test/workspace/projects/add-two-numbers/specforge-module
+ides:
+  - claude-code
