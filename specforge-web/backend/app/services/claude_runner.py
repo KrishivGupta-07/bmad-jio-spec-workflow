@@ -47,6 +47,12 @@ def classify_event(event: dict[str, Any]) -> tuple[str, str, dict[str, Any]]:
     return kind, role, event
 
 
+# Headless web runs cannot approve sandbox network prompts interactively.
+_HEADLESS_CLAUDE_SETTINGS = (
+    '{"sandbox":{"network":{"allowedDomains":["api.anthropic.com","*.anthropic.com"]}}}'
+)
+
+
 async def run_skill(
     project_path: Path,
     trigger: str,
@@ -61,7 +67,9 @@ async def run_skill(
         "stream-json",
         "--verbose",
         "--permission-mode",
-        "acceptEdits",
+        "bypassPermissions",
+        "--settings",
+        _HEADLESS_CLAUDE_SETTINGS,
         "--session-id",
         session_uuid,
         trigger,

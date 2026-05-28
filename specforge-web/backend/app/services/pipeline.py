@@ -38,3 +38,13 @@ DEV_HANDOFF_TRIGGER = (
     "Read _bmad-output/specforge/last-run.json and patch src/ only. "
     "Hard rule: never edit tests."
 )
+
+
+from app.services.workspace import PRODUCT_BRIEF_PATH
+
+
+def build_prd_trigger(_product_description: str) -> str:
+    return (
+        "Create PRD (headless, intent: create). "
+        f"Read the product brief at {PRODUCT_BRIEF_PATH} and use it as the primary input."
+    )

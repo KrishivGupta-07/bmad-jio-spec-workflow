@@ -7,6 +7,11 @@ from pydantic import BaseModel, ConfigDict
 
 class ProjectCreate(BaseModel):
     name: str
+    product_description: str
+
+
+class ProjectUpdate(BaseModel):
+    product_description: str
 
 
 class ProjectOut(BaseModel):
@@ -16,12 +21,19 @@ class ProjectOut(BaseModel):
     name: str
     slug: str
     path: str
+    product_description: str | None = None
     created_at: datetime
 
 
 class ProjectCreateResult(BaseModel):
     project: ProjectOut
     installer_output: str
+
+
+class InstallStatus(BaseModel):
+    ready: bool
+    running: bool
+    log: str | None = None
 
 
 class RunCreate(BaseModel):

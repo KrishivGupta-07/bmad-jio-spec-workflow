@@ -32,8 +32,9 @@ from app.services.pipeline import (
     ITERATION_CAP,
     STAGE_BY_ID,
     STAGE_BY_SKILL,
+    build_prd_trigger,
 )
-from app.services.workspace import read_last_run_json, sync_artifacts
+from app.services.workspace import read_last_run_json, require_bmad_ready, sync_artifacts
 
 logger = logging.getLogger(__name__)
 
@@ -248,6 +249,13 @@ async def start_stage_run(session: AsyncSession, project: Project, stage_id: str
         raise ValueError(f"Unknown stage: {stage_id}")
 
     trigger = stage.trigger_phrase
+    if stage_id == "prd":
+        if not (project.product_description or "").strip():
+            raise ValueError("Product description is required before creating a PRD")
+        trigger = build_prd_trigger(project.product_description)
+
+    require_bmad_ready(Path(project.path))
+
     if stage_id == "quick_dev":
         last_run = read_last_run_json(Path(project.path))
         if last_run and _build_handoff(last_run):

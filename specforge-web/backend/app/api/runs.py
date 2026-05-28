@@ -23,7 +23,10 @@ async def start_run(body: RunCreate, session: AsyncSession = Depends(get_session
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    run = await start_stage_run(session, project, body.stage)
+    try:
+        run = await start_stage_run(session, project, body.stage)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return RunOut.model_validate(run)
 
 

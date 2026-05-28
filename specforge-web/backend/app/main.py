@@ -6,11 +6,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api import artifacts, metrics, projects, runs, ws
 from app.config import get_settings
 from app.db import init_db
+from app.services.workspace import kickoff_template_build
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     await init_db()
+    kickoff_template_build()
     yield
 
 

@@ -35,10 +35,10 @@ async def list_projects() -> list[dict]:
 
 
 @mcp.tool(name="bmad.create_project")
-async def create_project_tool(name: str) -> dict:
+async def create_project_tool(name: str, product_description: str) -> dict:
     """Create a new project with specforge module installed."""
     async with async_session() as session:
-        project, _output = await create_project(session, name)
+        project, _output = await create_project(session, name, product_description)
         return {"slug": project.slug, "path": project.path}
 
 

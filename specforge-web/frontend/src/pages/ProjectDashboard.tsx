@@ -10,6 +10,7 @@ import { useUIStore } from "@/lib/store";
 import { useRunWebSocket } from "@/lib/ws";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog } from "@/components/ui/dialog";
 
 export function ProjectDashboard() {
   const { slug = "" } = useParams();
@@ -20,12 +21,24 @@ export function ProjectDashboard() {
   const setSelectedArtifactKind = useUIStore((s) => s.setSelectedArtifactKind);
   const [activeRunId, setActiveRunId] = useState<number | null>(null);
   const [runningStage, setRunningStage] = useState<string | null>(null);
+  const [briefDialogOpen, setBriefDialogOpen] = useState(false);
+  const [pendingStage, setPendingStage] = useState<string | null>(null);
+  const [briefDraft, setBriefDraft] = useState("");
 
   const { data: project } = useQuery({
     queryKey: ["project", slug],
     queryFn: () => api.getProject(slug),
     enabled: !!slug,
   });
+
+  const { data: installStatus } = useQuery({
+    queryKey: ["install-status", slug],
+    queryFn: () => api.getInstallStatus(slug),
+    enabled: !!slug,
+    refetchInterval: (query) => (query.state.data?.ready ? false : 3000),
+  });
+
+  const bmadReady = installStatus?.ready ?? true;
 
   const { data: pipeline, refetch: refetchPipeline } = useQuery({
     queryKey: ["pipeline", slug],
@@ -79,11 +92,29 @@ export function ProjectDashboard() {
     },
   });
 
+  const updateBriefMut = useMutation({
+    mutationFn: (productDescription: string) => api.updateProject(slug, productDescription),
+    onSuccess: async (updated) => {
+      qc.setQueryData(["project", slug], updated);
+      setBriefDialogOpen(false);
+      if (pendingStage) {
+        startRunMut.mutate(pendingStage);
+        setPendingStage(null);
+      }
+    },
+  });
+
   const runStage = useCallback(
     (stageId: string) => {
+      if (stageId === "prd" && !(project?.product_description || "").trim()) {
+        setPendingStage(stageId);
+        setBriefDraft(project?.product_description ?? "");
+        setBriefDialogOpen(true);
+        return;
+      }
       startRunMut.mutate(stageId);
     },
-    [startRunMut],
+    [project?.product_description, startRunMut],
   );
 
   useEffect(() => {
@@ -109,6 +140,11 @@ export function ProjectDashboard() {
           </Link>
           <h1 className="text-2xl font-bold">{project?.name ?? slug}</h1>
           <p className="font-mono text-xs text-muted-foreground">{project?.path}</p>
+          {project?.product_description && (
+            <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
+              {project.product_description}
+            </p>
+          )}
         </div>
         <label className="flex items-center gap-2 text-sm">
           <input
@@ -120,10 +156,48 @@ export function ProjectDashboard() {
         </label>
       </div>
 
+      <Dialog
+        open={briefDialogOpen}
+        onClose={() => {
+          setBriefDialogOpen(false);
+          setPendingStage(null);
+        }}
+        title="Product description required"
+      >
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Describe what you want to build before creating the PRD.
+          </p>
+          <textarea
+            className="min-h-[140px] w-full rounded-md border px-3 py-2 text-sm"
+            placeholder="Who it's for, core features, constraints, and success criteria."
+            value={briefDraft}
+            onChange={(e) => setBriefDraft(e.target.value)}
+          />
+          <Button
+            className="w-full"
+            disabled={briefDraft.trim().length < 20 || updateBriefMut.isPending}
+            onClick={() => updateBriefMut.mutate(briefDraft.trim())}
+          >
+            {updateBriefMut.isPending ? "Saving…" : "Save and create PRD"}
+          </Button>
+          {updateBriefMut.isError && (
+            <p className="text-xs text-destructive">{(updateBriefMut.error as Error).message}</p>
+          )}
+        </div>
+      </Dialog>
+
+      {!bmadReady && (
+        <div className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm">
+          BMAD modules are missing in this project. Create a new project or use retry setup.
+        </div>
+      )}
+
       <PipelineBoard
         stages={pipeline?.stages ?? []}
         halt={pipeline?.halt ?? false}
         runningStage={runningStage}
+        installNotReady={!bmadReady}
         onRunStage={runStage}
         onSelectRun={(id) => setActiveRunId(id)}
         onDevHandoff={() => runStage("quick_dev")}

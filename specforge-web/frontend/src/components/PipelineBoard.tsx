@@ -5,6 +5,7 @@ type Props = {
   stages: StageStatus[];
   halt: boolean;
   runningStage: string | null;
+  installNotReady?: boolean;
   onRunStage: (stageId: string) => void;
   onSelectRun: (runId: number) => void;
   onDevHandoff: () => void;
@@ -15,6 +16,7 @@ export function PipelineBoard({
   stages,
   halt,
   runningStage,
+  installNotReady,
   onRunStage,
   onSelectRun,
   onDevHandoff,
@@ -45,7 +47,9 @@ export function PipelineBoard({
             key={stage.stage_id}
             stage={stage}
             disabled={
-              (stage.stage_id === "run_tests" && halt) || runningStage === stage.stage_id
+              installNotReady ||
+              (stage.stage_id === "run_tests" && halt) ||
+              runningStage === stage.stage_id
             }
             running={runningStage === stage.stage_id}
             onRun={() => onRunStage(stage.stage_id)}

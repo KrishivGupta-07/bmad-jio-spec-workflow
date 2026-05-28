@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
 import { useUIStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
@@ -8,8 +8,10 @@ import { Dialog } from "@/components/ui/dialog";
 
 export function ProjectsList() {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
+  const [productDescription, setProductDescription] = useState("");
   const setInstallerOutput = useUIStore((s) => s.setInstallerOutput);
   const installerOutput = useUIStore((s) => s.installerOutput);
 
@@ -18,15 +20,25 @@ export function ProjectsList() {
     queryFn: api.listProjects,
   });
 
+  const { data: templateStatus } = useQuery({
+    queryKey: ["template-status"],
+    queryFn: api.getTemplateStatus,
+    refetchInterval: (query) => (query.state.data?.ready ? false : 2000),
+  });
+
   const createMut = useMutation({
-    mutationFn: () => api.createProject(name.trim()),
+    mutationFn: () => api.createProject(name.trim(), productDescription.trim()),
     onSuccess: (res) => {
       setInstallerOutput(res.installer_output);
       qc.invalidateQueries({ queryKey: ["projects"] });
       setOpen(false);
       setName("");
+      setProductDescription("");
+      navigate(`/projects/${res.project.slug}`);
     },
   });
+
+  const canCreate = name.trim().length > 0 && productDescription.trim().length >= 20;
 
   return (
     <div className="mx-auto max-w-5xl p-6">
@@ -37,6 +49,14 @@ export function ProjectsList() {
         </div>
         <Button onClick={() => setOpen(true)}>New project</Button>
       </div>
+
+      {templateStatus && !templateStatus.ready && (
+        <div className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm">
+          {templateStatus.running
+            ? "Preparing shared BMAD template (one-time setup)…"
+            : "BMAD template is not ready yet. New projects may fail until setup completes."}
+        </div>
+      )}
 
       {installerOutput && (
         <div className="mb-4 rounded-md border bg-muted/30 p-3">
@@ -93,18 +113,37 @@ export function ProjectsList() {
 
       <Dialog open={open} onClose={() => setOpen(false)} title="New project">
         <div className="space-y-3">
-          <input
-            className="w-full rounded-md border px-3 py-2 text-sm"
-            placeholder="Project name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">
+              Project name
+            </label>
+            <input
+              className="w-full rounded-md border px-3 py-2 text-sm"
+              placeholder="e.g. Team task board"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">
+              Product description
+            </label>
+            <textarea
+              className="min-h-[140px] w-full rounded-md border px-3 py-2 text-sm"
+              placeholder="Describe what you want to build: who it's for, core features, constraints, and success criteria."
+              value={productDescription}
+              onChange={(e) => setProductDescription(e.target.value)}
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              This becomes the product brief for PRD creation (minimum 20 characters).
+            </p>
+          </div>
           <Button
             className="w-full"
-            disabled={!name.trim() || createMut.isPending}
+            disabled={!canCreate || createMut.isPending || templateStatus?.ready === false}
             onClick={() => createMut.mutate()}
           >
-            {createMut.isPending ? "Creating…" : "Create"}
+            {createMut.isPending ? "Creating…" : "Create project"}
           </Button>
           {createMut.isError && (
             <p className="text-xs text-destructive">{(createMut.error as Error).message}</p>

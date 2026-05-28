@@ -3,6 +3,7 @@ export type Project = {
   name: string;
   slug: string;
   path: string;
+  product_description: string | null;
   created_at: string;
 };
 
@@ -113,11 +114,24 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   listProjects: () => request<Project[]>("/projects"),
-  createProject: (name: string) =>
+  createProject: (name: string, productDescription: string) =>
     request<{ project: Project; installer_output: string }>("/projects", {
       method: "POST",
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, product_description: productDescription }),
     }),
+  updateProject: (slug: string, productDescription: string) =>
+    request<Project>(`/projects/${slug}`, {
+      method: "PATCH",
+      body: JSON.stringify({ product_description: productDescription }),
+    }),
+  getInstallStatus: (slug: string) =>
+    request<{ ready: boolean; running: boolean; log: string | null }>(
+      `/projects/${slug}/install-status`,
+    ),
+  getTemplateStatus: () =>
+    request<{ ready: boolean; running: boolean; log: string | null }>(
+      "/projects/template/status",
+    ),
   getProject: (slug: string) => request<Project>(`/projects/${slug}`),
   startRun: (project_slug: string, stage: string) =>
     request<Run>("/runs", {
