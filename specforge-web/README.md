@@ -1,98 +1,89 @@
 # specforge-web
 
-Local web interface for the BMAD-Method v6.7.1 workflow extended by the **specforge** module. Runs pipeline stages via the `claude` CLI (OAuth/subscription — no API keys), tracks usage in Langfuse, and exposes an MCP server.
+Local web interface and orchestration backend for the BMAD-Method workflow extended by the **specforge** module. 
 
-## Prerequisites
+`specforge-web` provides a complete local pipeline to manage projects, view artifacts, and trigger Claude Code CLI runs without needing API keys (runs via CLI OAuth). It includes a sleek **Frontend UI**, native **Langfuse** observability, and a powerful **Auto-Advance Choreography** engine.
 
-- Python 3.11+
-- Node.js 18+ (for frontend and `npx bmad-method install`)
-- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) authenticated via `claude login`
-- Docker (for Langfuse)
-- `SPECFORGE_MODULE_PATH` pointing at a real `specforge-module/` directory
+## ✨ Key Features
 
-## Unified Docker Deployment (Single-Command Stack)
+- **Integrated Frontend UI:** A sleek, local dashboard to manage project workspaces, view generated artifacts (PRDs, FSDs, architectures), and manually trigger individual pipeline stages.
+- **Auto-Advance Agent Choreography:** A background polling system that fully automates the BMAD 4-Phase Development Cycle (Analysis, Planning, Solutioning, Implementation) based on a single instruction file.
+- **Native Langfuse Observability:** Deep integration with Langfuse v2. All runs emit detailed traces mapped directly to genuine BMAD skills (e.g., `bmad-create-prd`), capturing tokens, latencies, and dollar costs automatically.
+- **Unified Docker Deployment:** A single `docker compose` stack effortlessly spins up PostgreSQL, the Langfuse Dashboard, the FastAPI Backend, and the React Frontend.
+- **MCP Server:** Exposes Model Context Protocol (MCP) over SSE for external tooling integration.
 
-All services (Langfuse, PostgreSQL, backend, and frontend) are consolidated into a single, unified Docker Compose configuration.
+---
 
-### 1. Configure Secrets and Paths
+## 🚀 Quick Start (Unified Stack)
 
-First, copy the default environment configuration to `.env` in the `specforge-web` directory:
+All services are containerized and pre-configured to communicate out-of-the-box.
 
+### 1. Configure
+Copy the default environment configuration:
 ```bash
 cp .env.example .env
 ```
-
-If necessary, edit the `SPECFORGE_MODULE_PATH` in `.env` to point to your `specforge-module` directory on the host (defaults to `../specforge-module`).
+*(Optional: verify `SPECFORGE_MODULE_PATH` points to your `specforge-module` directory).*
 
 ### 2. Start the Stack
-
-To spin up the entire production-ready stack in the background:
-
+Spin up the entire production-ready stack in the background:
 ```bash
 docker compose up -d --build
 ```
 
-*   **Frontend UI**: `http://localhost:5173` (Served via Nginx proxying `/api` and `/api/ws` automatically to backend)
-*   **Langfuse UI**: `http://localhost:3000` (Pre-seeded with local credentials: `admin@local.dev` / `password`)
-*   **FastAPI Backend**: `http://localhost:8000`
-
-### 3. Local Development Mode (HMR & Hot-Reloading)
-
-If you are developing or modifying the web interface code and want HMR for Vite and live-reload for FastAPI:
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
-```
-
-This mounts the local directories (`./backend` and `./frontend`) inside the containers, runs the Vite dev server inside the container, and proxies HMR and WebSockets seamlessly.
-
-### 4. Running MCP Server inside Docker
-
-The backend container automatically exposes the MCP server on port `8765` over SSE. You can register it in Claude Code or other tools using:
-
-*   **SSE URL**: `http://localhost:8765/sse`
+### 3. Access the Services
+- **Frontend UI**: `http://localhost:5173` (Manage projects and pipeline stages)
+- **Langfuse Dashboard**: `http://localhost:3000` (Pre-seeded login: `admin@local.dev` / `password`)
+- **FastAPI Backend**: `http://localhost:8000`
+- **MCP Server (SSE)**: `http://localhost:8765/sse`
 
 ---
 
-## Verifying Langfuse Trace Ingestion
+## 🤖 Auto-Advance Polling & Choreography
 
-To confirm that trace ingestion is functioning perfectly:
+Instead of manually clicking through pipeline stages in the UI, `specforge-web` includes a powerful background poller that can automatically run the full BMAD 4-Phase Development cycle on your behalf.
 
-1. Open the **Langfuse UI** at `http://localhost:3000`, log in with `admin@local.dev` / `password`, and verify the `specforge-web` project is preloaded.
-2. In the **specforge-web UI** (`http://localhost:5173`), create a new project or select an existing one.
-3. Click any **Pipeline Stage** button (such as "Create PRD" or "Create FSD") to kick off a Claude Code CLI run.
-4. Open the **FastAPI Backend Logs** (`docker compose logs backend`) to see the debug flush logging:
-   ```text
-   Forcing flush of pending Langfuse events...
-   Successfully flushed OTEL tracer provider
-   Langfuse flush completed.
-   ```
-5. Return to the **Langfuse UI** and check the **Traces** dashboard. You should see a trace named after the stage skill (e.g. `bmad-create-prd`), containing:
-   * **Tags**: `project:<slug>` and `stage:<skill_name>`
-   * **Metadata**: Project slug, run ID, iteration, session UUID
-   * **Generations**: A nested observation named `claude-result` with exact model name, input/output token counts, latency in milliseconds, and calculated dollar cost.
+### How it works:
+The backend continuously polls your active projects every 10 minutes (configurable via `POLL_INTERVAL_SECONDS`). It looks for a file named `auto_advance.txt` in your project's workspace directory.
 
+**To trigger an automated run:**
+1. Create or edit `auto_advance.txt` in your project's workspace.
+2. Set the first line to `run = true`.
+3. Add your instructions below it.
 
-## Architecture
+```text
+run = true
+Build a fully responsive React login page with a dark mode toggle.
+```
 
-- **One button per pipeline stage** — no auto-chaining unless the user enables "Auto-advance" (off by default).
-- **5-iteration runner cap** enforced in UI and runner skill.
-- **Runner writes only** `_bmad-output/specforge/last-run.json`; dev handoff patches `src/` only.
-- **Langfuse**: one trace per stage run, tagged `project:<slug>` and `stage:<skill_name>`.
+The background worker will safely consume the file (flipping it to `run = false`), and orchestrate the following BMAD phases sequentially:
+1. **Analysis:** Generates the PRD (`bmad-create-prd`)
+2. **Planning:** Breaks requirements into epics and stories (`bmad-create-epics-and-stories`)
+3. **Solutioning:** Generates the technical architecture (`bmad-create-architecture`)
+4. **Implementation:** Executes a test-driven iterative loop:
+   - Generates E2E Tests (`bmad-qa-generate-e2e-tests`)
+   - Runs Tests (`bmad-run-tests`)
+   - Auto-patches the source code based on test failures (`bmad-quick-dev`) using `last-run.json` handoffs (capped at 5 iterations).
 
-## Pipeline stages
+You can monitor the progress of these phases in real-time in the UI Kanban board or view their distinct spans in the Langfuse traces dashboard!
 
-| Stage | Skill | Trigger |
+---
+
+## 📋 Pipeline Stages
+
+Whether triggered manually via the UI or orchestrated via Auto-Advance, all runs map to genuine, compiled BMAD skills:
+
+| Stage | Skill | Trigger Description |
 |-------|-------|---------|
-| PRD | bmad-create-prd | Create PRD |
-| FSD | bmad-create-fsd | Create FSD from my PRD |
-| Architecture | bmad-create-architecture | Create architecture |
-| Test strategy | bmad-create-test-strategy | Create test strategy |
-| Implement | bmad-quick-dev | Implement (quick-dev) |
-| E2E tests | bmad-qa-generate-e2e-tests | Generate e2e tests |
-| Run tests | bmad-run-tests | Run tests |
+| PRD | `bmad-create-prd` | Create PRD |
+| FSD / Planning | `bmad-create-epics-and-stories` | Break requirements into epics and user stories |
+| Architecture | `bmad-create-architecture` | Create technical architecture |
+| Test Strategy | `bmad-create-test-strategy` | Create test strategy |
+| Implement | `bmad-quick-dev` | Patch `src/` iteratively |
+| E2E tests | `bmad-qa-generate-e2e-tests` | Generate e2e tests |
+| Run tests | `bmad-run-tests` | Run tests & generate `last-run.json` |
 
-## Environment variables
+## ⚙️ Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -102,9 +93,11 @@ To confirm that trace ingestion is functioning perfectly:
 | `LANGFUSE_PUBLIC_KEY` | `pk-lf-local-dev` | Langfuse public key |
 | `LANGFUSE_SECRET_KEY` | `sk-lf-local-dev` | Langfuse secret key |
 | `LANGFUSE_HOST` | `http://localhost:3000` | Langfuse host |
+| `POLL_INTERVAL_SECONDS` | `600` | Auto-Advance polling frequency |
 
-## MCP tools
+## 🛠 MCP Tools
 
+The backend exposes these endpoints to MCP clients:
 - `bmad.list_projects`
 - `bmad.create_project`
 - `bmad.start_stage`
@@ -113,9 +106,7 @@ To confirm that trace ingestion is functioning perfectly:
 - `bmad.get_last_run`
 - `bmad.list_failures`
 
-## Non-goals
-
-- No API keys or LiteLLM proxy
-- No authentication (local-only)
-- No inline PRD/FSD editing
-- No automatic stage orchestration
+## 🚫 Non-Goals
+- No API keys or LiteLLM proxy required
+- No authentication (local-only environment)
+- No inline PRD/FSD editing directly in the UI
