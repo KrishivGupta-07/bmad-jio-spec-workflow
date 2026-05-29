@@ -14,6 +14,12 @@ async def lifespan(_app: FastAPI):
     await init_db()
     kickoff_template_build()
     yield
+    try:
+        from app.services.langfuse_sink import langfuse_sink
+        langfuse_sink.shutdown()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Error shutting down Langfuse sink: {e}")
 
 
 def create_app() -> FastAPI:

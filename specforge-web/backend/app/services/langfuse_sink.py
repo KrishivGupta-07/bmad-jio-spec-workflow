@@ -30,19 +30,20 @@ class LangfuseSink:
         project_slug: str,
         iteration: int | None = None,
     ) -> str:
-        trace_id = self._client.create_trace_id(seed=session_id)
-        root = self._client.start_observation(
-            trace_context={"trace_id": trace_id},
+        trace_id = f"{session_id}-{run_id}"
+        trace = self._client.trace(
+            id=trace_id,
             name=skill_name,
+            session_id=session_id,
             metadata={
                 "project_slug": project_slug,
                 "iteration": iteration,
                 "run_id": run_id,
                 "session_id": session_id,
-                "tags": [f"project:{project_slug}", f"stage:{skill_name}"],
             },
+            tags=[f"project:{project_slug}", f"stage:{skill_name}"],
         )
-        self._roots[run_id] = root
+        self._roots[run_id] = trace
         self._trace_ids[run_id] = trace_id
         return trace_id
 
@@ -55,33 +56,41 @@ class LangfuseSink:
         cost_usd: Decimal,
         latency_ms: int | None = None,
     ) -> None:
-        root = self._roots.get(run_id)
-        if not root:
+        trace = self._roots.get(run_id)
+        if not trace:
             return
-        gen = root.start_observation(
-            as_type="generation",
+        
+        # Start a generation within the trace
+        trace.generation(
             name="claude-result",
             model=model,
-            usage_details={
+            usage={
                 "input": prompt_tokens,
                 "output": completion_tokens,
                 "total": prompt_tokens + completion_tokens,
+                "total_cost": float(cost_usd),
             },
-            cost_details={"total": float(cost_usd)},
             metadata={"latency_ms": latency_ms},
+            end_time=None, # SDK automatically handles timing if wrapped, but here we just log it as completed
         )
-        gen.end()
 
     def end_trace(self, run_id: int, status: str) -> None:
-        root = self._roots.pop(run_id, None)
+        trace = self._roots.pop(run_id, None)
         self._trace_ids.pop(run_id, None)
-        if root:
-            root.update(metadata={"status": status})
-            root.end()
-        self._client.flush()
+        if trace:
+            trace.update(metadata={"status": status})
+            logger.info(f"Trace {run_id} ended with status: {status}")
+        self.flush()
 
     def flush(self) -> None:
+        logger.info("Forcing flush of pending Langfuse events...")
         self._client.flush()
+        logger.info("Langfuse flush completed.")
+
+    def shutdown(self) -> None:
+        logger.info("Shutting down Langfuse client...")
+        self._client.shutdown()
+        logger.info("Langfuse client shut down.")
 
 
 langfuse_sink = LangfuseSink()

@@ -67,7 +67,7 @@ async def run_skill(
         "stream-json",
         "--verbose",
         "--permission-mode",
-        "bypassPermissions",
+        "auto",
         "--settings",
         _HEADLESS_CLAUDE_SETTINGS,
         "--session-id",
