@@ -20,6 +20,7 @@ dependencies = [
     "mcp>=1.2.0",
     "python-slugify>=8.0.0",
     "httpx>=0.28.0",
+    "aiofiles>=23.2.1",
 ]
 
 [project.optional-dependencies]

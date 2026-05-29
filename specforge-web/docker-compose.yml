@@ -70,6 +70,7 @@ services:
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-sk-lf-local-dev}
       - LANGFUSE_HOST=http://langfuse:3000
       - CORS_ORIGINS=http://localhost:${FRONTEND_PORT:-5173}
+      - POLL_INTERVAL_SECONDS=10
     volumes:
       - ./workspace:/app/workspace
       - ../specforge-module:/app/specforge-module
