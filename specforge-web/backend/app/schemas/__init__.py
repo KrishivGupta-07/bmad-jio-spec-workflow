@@ -87,6 +87,7 @@ class RunDetailOut(RunOut):
     llm_calls: list[LLMCallOut] = []
     handoff: str | None = None
     last_run: dict[str, Any] | None = None
+    auth_error: bool = False
 
 
 class ArtifactOut(BaseModel):

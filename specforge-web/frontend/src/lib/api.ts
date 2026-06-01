@@ -47,6 +47,7 @@ export type RunDetail = Run & {
   llm_calls: LLMCall[];
   handoff: string | null;
   last_run: Record<string, unknown> | null;
+  auth_error: boolean;
 };
 
 export type Artifact = {

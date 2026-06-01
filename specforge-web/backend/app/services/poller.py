@@ -1,15 +1,17 @@
 import asyncio
 import logging
-import os
 from pathlib import Path
 
 import aiofiles
 import aiofiles.os
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.db import async_session
 from app.models.project import Project
 from app.services.choreography import run_choreography
+from app.services.workspace import register_external_project
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +59,28 @@ async def _check_and_start_choreography(project: Project) -> None:
     except Exception as e:
         logger.error(f"Error checking auto_advance.txt for project {project.id}: {e}")
 
+
+async def discover_external_projects(session: AsyncSession) -> None:
+    settings = get_settings()
+    scan_root = (settings.scan_root or settings.workspace_root).resolve()
+    if not scan_root.is_dir():
+        logger.warning("SCAN_ROOT is not a directory: %s", scan_root)
+        return
+
+    for child in sorted(scan_root.iterdir()):
+        if not child.is_dir():
+            continue
+        if child.name.startswith(".") or child.name.startswith("_"):
+            continue
+        auto_advance = child / "auto_advance.txt"
+        if not auto_advance.exists():
+            continue
+        try:
+            await register_external_project(session, child)
+        except Exception as e:
+            logger.error("Failed to register external project %s: %s", child, e)
+
+
 async def start_polling() -> None:
     settings = get_settings()
     interval = getattr(settings, "poll_interval_seconds", 600)
@@ -66,7 +90,7 @@ async def start_polling() -> None:
     while True:
         try:
             async with async_session() as session:
-                from sqlalchemy import select
+                await discover_external_projects(session)
                 projects = (await session.execute(select(Project))).scalars().all()
                 
             for project in projects:

@@ -48,4 +48,5 @@ async def get_run(run_id: int, session: AsyncSession = Depends(get_session)) -> 
         llm_calls=detail["llm_calls"],
         handoff=detail["handoff"],
         last_run=detail["last_run"],
+        auth_error=detail["auth_error"],
     )

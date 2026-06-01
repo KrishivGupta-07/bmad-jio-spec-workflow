@@ -66,6 +66,7 @@ services:
       - WORKSPACE_ROOT=/app/workspace
       - DATABASE_URL=sqlite+aiosqlite:////app/db/specforge-web.db
       - CLAUDE_CLI_PATH=claude
+      - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-pk-lf-local-dev}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-sk-lf-local-dev}
       - LANGFUSE_HOST=http://langfuse:3000

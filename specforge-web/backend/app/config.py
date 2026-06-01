@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     langfuse_host: str = "http://localhost:3000"
     cors_origins: str = "http://localhost:5173"
     poll_interval_seconds: int = 600
+    # When unset, discovery scans workspace_root (see poller.discover_external_projects).
+    scan_root: Path | None = None
 
     @property
     def cors_origin_list(self) -> list[str]:

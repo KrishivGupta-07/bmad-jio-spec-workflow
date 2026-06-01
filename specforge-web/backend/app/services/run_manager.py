@@ -24,6 +24,7 @@ from app.services.claude_runner import (
     extract_session_id,
     parse_result_usage,
     run_skill,
+    should_persist_message,
     _extract_text,
 )
 from app.services.langfuse_sink import langfuse_sink
@@ -62,6 +63,20 @@ class RunEventHub:
 
 run_hub = RunEventHub()
 _active_tasks: dict[int, asyncio.Task] = {}
+
+
+def is_auth_error_text(content: str) -> bool:
+    """True when a message indicates the Claude CLI failed to authenticate (401)."""
+    c = (content or "").lower()
+    if "authentication_failed" in c:
+        return True
+    if "invalid authentication credentials" in c:
+        return True
+    if "failed to authenticate" in c:
+        return True
+    if "401" in c and ("auth" in c or "credential" in c):
+        return True
+    return False
 
 
 def _build_handoff(last_run: dict[str, Any]) -> str | None:
@@ -124,19 +139,22 @@ async def execute_run(run_id: int, project_id: int, stage_id: str, trigger: str,
 
         if kind in ("assistant", "user", "tool_use", "tool_result", "system"):
             content = _extract_text(payload)
-            msg_role = MessageRole(role_str)
-            async with async_session() as s:
-                msg = await _persist_message(s, run_id, msg_role, content)
-                await run_hub.publish(
-                    run_id,
-                    {
-                        "type": "message",
-                        "id": msg.id,
-                        "role": msg.role.value,
-                        "content": msg.content,
-                        "ts": msg.ts.isoformat(),
-                    },
-                )
+            if should_persist_message(kind, content, payload):
+                msg_role = MessageRole(role_str)
+                async with async_session() as s:
+                    msg = await _persist_message(s, run_id, msg_role, content)
+                    await run_hub.publish(
+                        run_id,
+                        {
+                            "type": "message",
+                            "id": msg.id,
+                            "role": msg.role.value,
+                            "content": msg.content,
+                            "ts": msg.ts.isoformat(),
+                        },
+                    )
+                if is_auth_error_text(content):
+                    await run_hub.publish(run_id, {"type": "auth_error"})
 
         if kind == "result":
             usage = parse_result_usage(payload)
@@ -306,6 +324,10 @@ async def get_run_detail(session: AsyncSession, run_id: int) -> dict[str, Any]:
             if last_run:
                 handoff = _build_handoff(last_run)
 
+    auth_error = run.status == RunStatus.failure and any(
+        is_auth_error_text(m.content) for m in msgs
+    )
+
     return {
         "run": run,
         "messages": msgs,
@@ -316,6 +338,7 @@ async def get_run_detail(session: AsyncSession, run_id: int) -> dict[str, Any]:
         "cost_usd": cost_usd,
         "handoff": handoff,
         "last_run": last_run,
+        "auth_error": auth_error,
     }
 
 

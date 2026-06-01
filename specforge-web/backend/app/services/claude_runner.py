@@ -34,6 +34,19 @@ def _extract_text(payload: dict[str, Any]) -> str:
     return json.dumps(payload, default=str)[:4000]
 
 
+def should_persist_message(kind: str, content: str, event: dict[str, Any] | None = None) -> bool:
+    """Return False for empty, trigger echo, or session bootstrap noise."""
+    if not content.strip():
+        return False
+    if kind == "user":
+        return False
+    if kind == "system":
+        payload = event or {}
+        if payload.get("subtype") == "init":
+            return False
+    return kind in ("assistant", "tool_use", "tool_result", "system")
+
+
 def classify_event(event: dict[str, Any]) -> tuple[str, str, dict[str, Any]]:
     """Return (kind, role, normalized_payload)."""
     kind = str(event.get("type", "unknown"))

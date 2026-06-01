@@ -12,11 +12,38 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import async_session
 from app.models.project import Project
 from app.models.run import Run, RunStatus
-from app.services.pipeline import ITERATION_CAP, STAGE_BY_ID, build_prd_trigger
+from app.services.pipeline import (
+    ITERATION_CAP,
+    STAGE_BY_ID,
+    build_prd_trigger,
+)
 from app.services.run_manager import _build_handoff, execute_run
 from app.services.workspace import read_last_run_json
 
 logger = logging.getLogger(__name__)
+
+# Linear pipeline mirroring the web UI stage order (see pipeline.STAGES).
+LINEAR_STAGE_IDS = [
+    "prd",
+    "fsd",
+    "architecture",
+    "test_strategy",
+    "quick_dev",
+    "qa_tests",
+    "run_tests",
+]
+
+
+def _stage_trigger(stage_id: str, instructions: str, product_description: str | None) -> str:
+    """Build the trigger for a stage, prefixing the auto_advance instructions."""
+    stage = STAGE_BY_ID[stage_id]
+    if stage_id == "prd":
+        base = build_prd_trigger(product_description) if product_description else ""
+    else:
+        base = stage.trigger_phrase
+    if instructions.strip():
+        return f"Instructions:\n{instructions}\n\n{base}".strip()
+    return base
 
 async def _create_and_execute_run(
     project: Project,
@@ -46,77 +73,63 @@ async def _create_and_execute_run(
 
 async def run_choreography(project_id: int, instructions: str) -> None:
     logger.info(f"Starting choreography for project {project_id} with instructions: {instructions}")
-    
+
     async with async_session() as session:
         project = await session.get(Project, project_id)
         if not project:
             logger.error(f"Project {project_id} not found for choreography.")
             return
 
-    # 1. Analysis (PRD)
-    prd_trigger = build_prd_trigger(project.product_description) if project.product_description else ""
-    analysis_trigger = f"Instructions:\n{instructions}\n\n{prd_trigger}".strip()
-    run = await _create_and_execute_run(project, "prd", "bmad-create-prd", analysis_trigger)
-    if run.status != RunStatus.success:
-        logger.error(f"Choreography aborted: Analysis phase failed for project {project_id}")
-        return
+    # Linear pass: run each web-UI pipeline stage in order.
+    # PRD -> FSD -> Architecture -> Test strategy -> Implement -> Generate e2e tests -> Run tests
+    for stage_id in LINEAR_STAGE_IDS:
+        stage = STAGE_BY_ID[stage_id]
+        trigger = _stage_trigger(stage_id, instructions, project.product_description)
+        run = await _create_and_execute_run(project, stage_id, stage.skill_name, trigger)
 
-    # 2. Planning (Epics and Stories / fsd equivalent stage)
-    planning_trigger = f"Instructions:\n{instructions}\n\nBreak requirements into epics and user stories."
-    run = await _create_and_execute_run(project, "fsd", "bmad-create-epics-and-stories", planning_trigger)
-    if run.status != RunStatus.success:
-        logger.error(f"Choreography aborted: Planning phase failed for project {project_id}")
-        return
-
-    # 3. Solutioning (Architecture)
-    solution_trigger = f"Instructions:\n{instructions}\n\nCreate architecture and technical design."
-    run = await _create_and_execute_run(project, "architecture", "bmad-create-architecture", solution_trigger)
-    if run.status != RunStatus.success:
-        logger.error(f"Choreography aborted: Solutioning phase failed for project {project_id}")
-        return
-
-    # 4. Implementation Loop
-    project_path = Path(project.path)
-    iteration = 0
-
-    while iteration < ITERATION_CAP:
-        iteration += 1
-        logger.info(f"Choreography Implementation Loop - Iteration {iteration} for project {project_id}")
-
-        # QA Generation (End-to-End tests)
-        qa_trigger = f"Instructions:\n{instructions}\n\nGenerate QA automated e2e tests based on the specs and architecture."
-        run = await _create_and_execute_run(project, "qa_tests", "bmad-qa-generate-e2e-tests", qa_trigger)
-        if run.status != RunStatus.success:
-            logger.error(f"Choreography aborted: QA Generation failed for project {project_id} at iteration {iteration}")
+        # run_tests "failure" means tests failed; don't abort, enter the fix loop below.
+        if run.status != RunStatus.success and stage_id != "run_tests":
+            logger.error(
+                f"Choreography aborted: stage '{stage_id}' failed for project {project_id}"
+            )
             return
 
-        # Run Tests
-        test_trigger = f"Instructions:\n{instructions}\n\nRun the test suite."
-        run = await _create_and_execute_run(project, "run_tests", "bmad-run-tests", test_trigger)
-        
-        # Check last-run.json to determine next steps
+    # Implementation loop: patch src/ from failing tests and re-run, mirroring the
+    # manual quick-dev <-> run-tests handoff (capped at ITERATION_CAP iterations).
+    project_path = Path(project.path)
+    iteration = 1  # run_tests already executed once in the linear pass
+
+    while iteration < ITERATION_CAP:
         last_run = read_last_run_json(project_path)
         if not last_run:
             logger.error(f"Choreography aborted: Missing last-run.json for project {project_id}")
             return
 
         handoff = _build_handoff(last_run)
-        
-        # If tests passed or there are no failures, break loop
         if not handoff:
-            logger.info(f"Choreography completed successfully for project {project_id}. All tests passed.")
-            break
+            logger.info(
+                f"Choreography completed successfully for project {project_id}. All tests passed."
+            )
+            return
 
-        # If we reached the iteration cap and tests still failed, we halt
-        if iteration >= ITERATION_CAP:
-            logger.error(f"Choreography aborted: Iteration cap reached for project {project_id} with failing tests.")
-            break
+        iteration += 1
+        logger.info(
+            f"Choreography Implementation Loop - Iteration {iteration} for project {project_id}"
+        )
 
-        # Otherwise, feed handoff back to Quick Dev
+        # Patch src/ only based on the last-run.json handoff.
         dev_trigger = f"Instructions:\n{instructions}\n\n{handoff}"
         run = await _create_and_execute_run(project, "quick_dev", "bmad-quick-dev", dev_trigger)
         if run.status != RunStatus.success:
-            logger.error(f"Choreography aborted: Quick Dev failed for project {project_id} at iteration {iteration}")
+            logger.error(
+                f"Choreography aborted: Quick Dev failed for project {project_id} at iteration {iteration}"
+            )
             return
 
-    logger.info(f"Choreography finished for project {project_id}.")
+        # Re-run the test suite.
+        test_trigger = _stage_trigger("run_tests", instructions, project.product_description)
+        await _create_and_execute_run(project, "run_tests", "bmad-run-tests", test_trigger)
+
+    logger.warning(
+        f"Choreography finished for project {project_id} at iteration cap with tests still failing."
+    )

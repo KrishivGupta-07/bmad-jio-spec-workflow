@@ -1,12 +1,9 @@
 import { useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { Message } from "@/lib/api";
+import { mergeStreamItems } from "@/lib/messageStream";
 import type { WsEvent } from "@/lib/ws";
 import { cn } from "@/lib/utils";
-
-type StreamItem =
-  | { kind: "message"; id: string; role: string; content: string; ts?: string }
-  | { kind: "usage"; id: string; data: WsEvent };
 
 type Props = {
   messages: Message[];
@@ -16,28 +13,7 @@ type Props = {
 export function MessageStream({ messages, liveEvents = [] }: Props) {
   const parentRef = useRef<HTMLDivElement>(null);
 
-  const items: StreamItem[] = [
-    ...messages.map((m) => ({
-      kind: "message" as const,
-      id: `msg-${m.id}`,
-      role: m.role,
-      content: m.content,
-      ts: m.ts,
-    })),
-    ...liveEvents
-      .filter((e) => e.type === "message" || e.type === "usage")
-      .map((e, i) =>
-        e.type === "usage"
-          ? { kind: "usage" as const, id: `live-u-${i}`, data: e }
-          : {
-              kind: "message" as const,
-              id: `live-m-${i}`,
-              role: String(e.role ?? "system"),
-              content: String(e.content ?? JSON.stringify(e)),
-              ts: e.ts as string | undefined,
-            },
-      ),
-  ];
+  const items = mergeStreamItems(messages, liveEvents);
 
   const virtualizer = useVirtualizer({
     count: items.length,

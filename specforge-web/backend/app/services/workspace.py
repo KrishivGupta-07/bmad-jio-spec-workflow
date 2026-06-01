@@ -315,6 +315,65 @@ async def get_project_by_slug(session: AsyncSession, slug: str) -> Project | Non
     return result.scalar_one_or_none()
 
 
+async def get_project_by_path(session: AsyncSession, project_path: Path) -> Project | None:
+    target = project_path.resolve()
+    result = await session.execute(select(Project))
+    for project in result.scalars():
+        if Path(project.path).resolve() == target:
+            return project
+    return None
+
+
+def is_bmad_installed(project_path: Path) -> bool:
+    return (project_path / ".agents" / "skills").is_dir() and (project_path / "_bmad").is_dir()
+
+
+async def ensure_bmad_installed(project_path: Path) -> None:
+    if is_bmad_installed(project_path):
+        return
+    module_src = get_settings().specforge_module_path.resolve()
+    if not module_src.is_dir():
+        raise FileNotFoundError(f"SPECFORGE_MODULE_PATH not found: {module_src}")
+    await ensure_template_ready()
+    await _seed_project_from_template(project_path, module_src)
+
+
+async def register_external_project(session: AsyncSession, dir_path: Path) -> Project | None:
+    resolved = dir_path.resolve()
+    if not resolved.is_dir():
+        return None
+
+    existing = await get_project_by_path(session, resolved)
+    if existing:
+        return None
+
+    name = resolved.name
+    base_slug = slugify(name) or "project"
+    slug = base_slug
+    counter = 1
+    while await get_project_by_slug(session, slug):
+        slug = f"{base_slug}-{counter}"
+        counter += 1
+
+    await ensure_bmad_installed(resolved)
+
+    project = Project(
+        name=name,
+        slug=slug,
+        path=str(resolved),
+        product_description=None,
+    )
+    session.add(project)
+    await session.commit()
+    await session.refresh(project)
+
+    from app.services.artifact_watcher import start_watcher
+
+    start_watcher(project)
+    logger.info("Registered external project %s at %s", slug, resolved)
+    return project
+
+
 async def update_product_description(
     session: AsyncSession, project: Project, product_description: str
 ) -> Project:
