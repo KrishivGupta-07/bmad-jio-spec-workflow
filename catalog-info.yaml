@@ -43,6 +43,11 @@ spec:
   # Link the component to the API entity it exposes (shows up in the "APIs" tab).
   providesApis:
     - specforge-web-api
+  # Relations that build out the system graph (see the entity's "Dependencies" /
+  # relations and the System diagram).
+  dependsOn:
+    - component:specforge-module
+    - resource:langfuse
 ---
 apiVersion: backstage.io/v1alpha1
 kind: API
@@ -78,5 +83,31 @@ metadata:
 spec:
   type: library
   lifecycle: experimental
+  owner: user:default/krishiv
+  system: specforge
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: langfuse
+  description: >-
+    Langfuse LLM observability backend for specforge (Docker Compose service,
+    host port 3000).
+spec:
+  type: observability
+  owner: user:default/krishiv
+  system: specforge
+  # Langfuse stores its data in a dedicated Postgres instance.
+  dependsOn:
+    - resource:langfuse-db
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: langfuse-db
+  description: >-
+    Postgres 16 database backing Langfuse (Docker Compose service, host port 5433).
+spec:
+  type: database
   owner: user:default/krishiv
   system: specforge
