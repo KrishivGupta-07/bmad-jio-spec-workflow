@@ -7,11 +7,35 @@ from pydantic import BaseModel, ConfigDict
 
 class ProjectCreate(BaseModel):
     name: str
-    product_description: str
+    # Optional: projects are now empty groups; instructions drive the pipeline.
+    product_description: str | None = None
 
 
 class ProjectUpdate(BaseModel):
     product_description: str
+
+
+class InstructionCreate(BaseModel):
+    text: str
+
+
+class InstructionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    project_id: int
+    slug: str
+    title: str
+    instruction_text: str
+    path: str
+    is_default: bool
+    status: str
+    created_at: datetime
+
+
+class InstructionDetailOut(InstructionOut):
+    project_slug: str
+    project_name: str
 
 
 class ProjectOut(BaseModel):
@@ -41,11 +65,16 @@ class RunCreate(BaseModel):
     stage: str
 
 
+class StageStart(BaseModel):
+    stage: str
+
+
 class RunOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     project_id: int
+    instruction_id: int | None = None
     skill_name: str
     trigger_phrase: str
     status: str
@@ -116,6 +145,7 @@ class TestRunOut(BaseModel):
 
 class ProjectMetrics(BaseModel):
     project_slug: str
+    instruction_id: int | None = None
     total_runs: int
     prompt_tokens: int
     completion_tokens: int
@@ -137,6 +167,7 @@ class StageStatus(BaseModel):
 
 class PipelineStatus(BaseModel):
     project_slug: str
+    instruction_id: int | None = None
     stages: list[StageStatus]
     latest_test_run: TestRunOut | None = None
     halt: bool = False

@@ -10,11 +10,11 @@ from sqlalchemy import select
 
 from app.db import async_session, init_db
 from app.models.project import Project
-from app.schemas import RunOut
-from app.services.pipeline import ARTIFACT_PATHS, STAGE_BY_ID
-from app.services.run_manager import aggregate_metrics, get_run_detail, start_stage_run
+from app.services.pipeline import ARTIFACT_KINDS, STAGE_BY_ID
+from app.services.run_manager import get_run_detail, start_stage_run
 from app.services.workspace import (
     create_project,
+    ensure_default_instruction,
     get_project_by_slug,
     parse_failures,
     read_artifact_file,
@@ -44,14 +44,15 @@ async def create_project_tool(name: str, product_description: str) -> dict:
 
 @mcp.tool(name="bmad.start_stage")
 async def start_stage(project_slug: str, stage: str) -> dict:
-    """Start a pipeline stage for a project."""
+    """Start a pipeline stage for a project's default instruction."""
     if stage not in STAGE_BY_ID:
         raise ValueError(f"Unknown stage: {stage}")
     async with async_session() as session:
         project = await get_project_by_slug(session, project_slug)
         if not project:
             raise ValueError(f"Project not found: {project_slug}")
-        run = await start_stage_run(session, project, stage)
+        instruction = await ensure_default_instruction(session, project)
+        run = await start_stage_run(session, instruction, stage)
         return {"run_id": run.id, "status": run.status.value}
 
 
@@ -76,13 +77,14 @@ async def get_run(run_id: int) -> dict:
 @mcp.tool(name="bmad.read_artifact")
 async def read_artifact(project_slug: str, kind: str) -> dict:
     """Read a planning artifact (prd|fsd|architecture|test_strategy|last_run)."""
-    if kind not in ARTIFACT_PATHS:
+    if kind not in ARTIFACT_KINDS:
         raise ValueError(f"Unknown kind: {kind}")
     async with async_session() as session:
         project = await get_project_by_slug(session, project_slug)
         if not project:
             raise ValueError(f"Project not found: {project_slug}")
-        data = read_artifact_file(Path(project.path), kind)
+        instruction = await ensure_default_instruction(session, project)
+        data = read_artifact_file(Path(instruction.path), kind)
         if not data:
             raise ValueError(f"Artifact not found: {kind}")
         return {
@@ -94,12 +96,13 @@ async def read_artifact(project_slug: str, kind: str) -> dict:
 
 @mcp.tool(name="bmad.get_last_run")
 async def get_last_run(project_slug: str) -> dict:
-    """Return last-run.json contents for a project."""
+    """Return last-run.json contents for a project's default instruction."""
     async with async_session() as session:
         project = await get_project_by_slug(session, project_slug)
         if not project:
             raise ValueError(f"Project not found: {project_slug}")
-        data = read_last_run_json(Path(project.path))
+        instruction = await ensure_default_instruction(session, project)
+        data = read_last_run_json(Path(instruction.path))
         if not data:
             raise ValueError("last-run.json not found")
         return data
@@ -107,12 +110,13 @@ async def get_last_run(project_slug: str) -> dict:
 
 @mcp.tool(name="bmad.list_failures")
 async def list_failures(project_slug: str) -> list[dict]:
-    """List test failures from last-run.json."""
+    """List test failures from last-run.json (default instruction)."""
     async with async_session() as session:
         project = await get_project_by_slug(session, project_slug)
         if not project:
             raise ValueError(f"Project not found: {project_slug}")
-        data = read_last_run_json(Path(project.path))
+        instruction = await ensure_default_instruction(session, project)
+        data = read_last_run_json(Path(instruction.path))
         if not data:
             return []
         return parse_failures(data)

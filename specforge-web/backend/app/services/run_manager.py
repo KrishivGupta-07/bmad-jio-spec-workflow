@@ -13,6 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import async_session
+from app.models.instruction import Instruction, InstructionStatus
 from app.models.llm_call import LLMCall
 from app.models.message import Message, MessageRole
 from app.models.project import Project
@@ -35,9 +36,47 @@ from app.services.pipeline import (
     STAGE_BY_SKILL,
     build_prd_trigger,
 )
-from app.services.workspace import read_last_run_json, require_bmad_ready, sync_artifacts
+from app.services.workspace import (
+    ensure_default_instruction,
+    read_last_run_json,
+    require_bmad_ready,
+    sync_artifacts,
+)
+from sqlalchemy import or_
 
 logger = logging.getLogger(__name__)
+
+
+def _instruction_run_condition(instruction: Instruction):
+    """SQL condition selecting the runs that belong to an instruction.
+
+    The default instruction also adopts legacy runs that predate instructions
+    (``instruction_id IS NULL``) so historical data stays visible.
+    """
+    if instruction.is_default:
+        return or_(
+            Run.instruction_id == instruction.id,
+            (Run.instruction_id.is_(None)) & (Run.project_id == instruction.project_id),
+        )
+    return Run.instruction_id == instruction.id
+
+
+def _instruction_test_condition(instruction: Instruction):
+    if instruction.is_default:
+        return or_(
+            TestRun.instruction_id == instruction.id,
+            (TestRun.instruction_id.is_(None))
+            & (TestRun.project_id == instruction.project_id),
+        )
+    return TestRun.instruction_id == instruction.id
+
+
+def _terminal_instruction_status(run_status: RunStatus) -> InstructionStatus:
+    return {
+        RunStatus.success: InstructionStatus.success,
+        RunStatus.failure: InstructionStatus.failure,
+        RunStatus.halted: InstructionStatus.halted,
+    }.get(run_status, InstructionStatus.running)
 
 
 class RunEventHub:
@@ -108,24 +147,39 @@ async def _persist_message(session: AsyncSession, run_id: int, role: MessageRole
     return msg
 
 
-async def execute_run(run_id: int, project_id: int, stage_id: str, trigger: str, skill_name: str) -> None:
+async def execute_run(
+    run_id: int,
+    instruction_id: int,
+    stage_id: str,
+    trigger: str,
+    skill_name: str,
+) -> None:
     async with async_session() as session:
-        project = await session.get(Project, project_id)
+        instruction = await session.get(Instruction, instruction_id)
+        if not instruction:
+            return
+        project = await session.get(Project, instruction.project_id)
         run = await session.get(Run, run_id)
         if not project or not run:
             return
 
+        project_id = project.id
+        instruction_slug = instruction.slug
+        base_path = Path(instruction.path)
+
         session_uuid = run.claude_session_id or str(uuid.uuid4())
         run.claude_session_id = session_uuid
+        run.instruction_id = instruction.id
         run.status = RunStatus.running
         run.started_at = datetime.utcnow()
+        instruction.status = InstructionStatus.running
         await session.commit()
 
     trace_id = langfuse_sink.start_trace(
-        run_id, skill_name, session_uuid, project.slug, run.iteration
+        run_id, skill_name, session_uuid, f"{project.slug}/{instruction_slug}", run.iteration
     )
 
-    project_path = Path(project.path)
+    project_path = base_path
 
     async def on_event(event: dict[str, Any]) -> None:
         kind, role_str, payload = classify_event(event)
@@ -201,7 +255,10 @@ async def execute_run(run_id: int, project_id: int, stage_id: str, trigger: str,
             if run:
                 run.status = RunStatus.failure
                 run.ended_at = datetime.utcnow()
-                await session.commit()
+            instruction = await session.get(Instruction, instruction_id)
+            if instruction:
+                instruction.status = InstructionStatus.failure
+            await session.commit()
         await run_hub.publish(run_id, {"type": "error", "message": str(exc)})
         langfuse_sink.end_trace(run_id, "failure")
         _active_tasks.pop(run_id, None)
@@ -214,7 +271,8 @@ async def execute_run(run_id: int, project_id: int, stage_id: str, trigger: str,
     async with async_session() as session:
         run = await session.get(Run, run_id)
         project = await session.get(Project, project_id)
-        if not run or not project:
+        instruction = await session.get(Instruction, instruction_id)
+        if not run or not project or not instruction:
             return
 
         if stage_id == "run_tests" and last_run:
@@ -223,11 +281,12 @@ async def execute_run(run_id: int, project_id: int, stage_id: str, trigger: str,
             run.iteration = iteration
             test_run = TestRun(
                 project_id=project.id,
+                instruction_id=instruction.id,
                 iteration=iteration,
                 passed=int(summary.get("passed") or 0),
                 failed=int(summary.get("failed") or 0),
                 last_run_json_path=str(
-                    project_path / "_bmad-output" / "specforge" / "last-run.json"
+                    base_path / "_bmad-output" / "specforge" / "last-run.json"
                 ),
             )
             session.add(test_run)
@@ -244,8 +303,9 @@ async def execute_run(run_id: int, project_id: int, stage_id: str, trigger: str,
 
         run.status = final_status
         run.ended_at = datetime.utcnow()
+        instruction.status = _terminal_instruction_status(final_status)
         await session.commit()
-        await sync_artifacts(session, project)
+        await sync_artifacts(session, project, instruction)
 
     langfuse_sink.end_trace(run_id, final_status.value)
     await run_hub.publish(
@@ -261,27 +321,36 @@ async def execute_run(run_id: int, project_id: int, stage_id: str, trigger: str,
     _active_tasks.pop(run_id, None)
 
 
-async def start_stage_run(session: AsyncSession, project: Project, stage_id: str) -> Run:
+async def start_stage_run(
+    session: AsyncSession, instruction: Instruction, stage_id: str
+) -> Run:
     stage = STAGE_BY_ID.get(stage_id)
     if not stage:
         raise ValueError(f"Unknown stage: {stage_id}")
 
+    project = await session.get(Project, instruction.project_id)
+    if not project:
+        raise ValueError("Project not found")
+
+    base_path = Path(instruction.path)
+    require_bmad_ready(base_path)
+
     trigger = stage.trigger_phrase
     if stage_id == "prd":
-        if not (project.product_description or "").strip():
-            raise ValueError("Product description is required before creating a PRD")
-        trigger = build_prd_trigger(project.product_description)
-
-    require_bmad_ready(Path(project.path))
+        brief = (instruction.instruction_text or project.product_description or "").strip()
+        if not brief:
+            raise ValueError("Instruction text is required before creating a PRD")
+        trigger = build_prd_trigger(brief)
 
     if stage_id == "quick_dev":
-        last_run = read_last_run_json(Path(project.path))
+        last_run = read_last_run_json(base_path)
         if last_run and _build_handoff(last_run):
             trigger = DEV_HANDOFF_TRIGGER
 
     session_uuid = str(uuid.uuid4())
     run = Run(
         project_id=project.id,
+        instruction_id=instruction.id,
         skill_name=stage.skill_name,
         trigger_phrase=trigger,
         status=RunStatus.pending,
@@ -293,7 +362,7 @@ async def start_stage_run(session: AsyncSession, project: Project, stage_id: str
 
     start_watcher(project)
     task = asyncio.create_task(
-        execute_run(run.id, project.id, stage_id, trigger, stage.skill_name)
+        execute_run(run.id, instruction.id, stage_id, trigger, stage.skill_name)
     )
     _active_tasks[run.id] = task
     return run
@@ -318,9 +387,17 @@ async def get_run_detail(session: AsyncSession, run_id: int) -> dict[str, Any]:
     last_run = None
     handoff = None
     if run.skill_name == STAGE_BY_ID["run_tests"].skill_name:
-        project = await session.get(Project, run.project_id)
-        if project:
-            last_run = read_last_run_json(Path(project.path))
+        base_path: Path | None = None
+        if run.instruction_id:
+            instruction = await session.get(Instruction, run.instruction_id)
+            if instruction:
+                base_path = Path(instruction.path)
+        if base_path is None:
+            project = await session.get(Project, run.project_id)
+            if project:
+                base_path = Path(project.path)
+        if base_path is not None:
+            last_run = read_last_run_json(base_path)
             if last_run:
                 handoff = _build_handoff(last_run)
 
@@ -342,21 +419,22 @@ async def get_run_detail(session: AsyncSession, run_id: int) -> dict[str, Any]:
     }
 
 
-async def aggregate_metrics(session: AsyncSession, project_slug: str) -> dict[str, Any]:
-    project = (
-        await session.execute(select(Project).where(Project.slug == project_slug))
-    ).scalar_one_or_none()
-    if not project:
-        raise ValueError("Project not found")
+async def aggregate_metrics(
+    session: AsyncSession, instruction: Instruction
+) -> dict[str, Any]:
+    project = await session.get(Project, instruction.project_id)
+    project_slug = project.slug if project else ""
 
+    run_condition = _instruction_run_condition(instruction)
     runs = (
-        await session.execute(select(Run).where(Run.project_id == project.id))
+        await session.execute(select(Run).where(run_condition))
     ).scalars().all()
     run_ids = [r.id for r in runs]
 
     if not run_ids:
         return {
             "project_slug": project_slug,
+            "instruction_id": instruction.id,
             "total_runs": 0,
             "prompt_tokens": 0,
             "completion_tokens": 0,
@@ -379,6 +457,7 @@ async def aggregate_metrics(session: AsyncSession, project_slug: str) -> dict[st
 
     return {
         "project_slug": project_slug,
+        "instruction_id": instruction.id,
         "total_runs": len(runs),
         "prompt_tokens": int(row[0]),
         "completion_tokens": int(row[1]),
@@ -387,19 +466,21 @@ async def aggregate_metrics(session: AsyncSession, project_slug: str) -> dict[st
     }
 
 
-async def get_pipeline_status(session: AsyncSession, project_slug: str) -> dict[str, Any]:
+async def get_pipeline_status(
+    session: AsyncSession, instruction: Instruction
+) -> dict[str, Any]:
     from app.services.pipeline import STAGES
 
-    project = (
-        await session.execute(select(Project).where(Project.slug == project_slug))
-    ).scalar_one_or_none()
-    if not project:
-        raise ValueError("Project not found")
+    project = await session.get(Project, instruction.project_id)
+    project_slug = project.slug if project else ""
+
+    run_condition = _instruction_run_condition(instruction)
+    test_condition = _instruction_test_condition(instruction)
 
     latest_test = (
         await session.execute(
             select(TestRun)
-            .where(TestRun.project_id == project.id)
+            .where(test_condition)
             .order_by(TestRun.ts.desc())
             .limit(1)
         )
@@ -414,7 +495,7 @@ async def get_pipeline_status(session: AsyncSession, project_slug: str) -> dict[
         last_run_row = (
             await session.execute(
                 select(Run)
-                .where(Run.project_id == project.id, Run.skill_name == stage.skill_name)
+                .where(run_condition, Run.skill_name == stage.skill_name)
                 .order_by(Run.started_at.desc().nullslast())
                 .limit(1)
             )
@@ -422,9 +503,7 @@ async def get_pipeline_status(session: AsyncSession, project_slug: str) -> dict[
 
         stage_run_ids = (
             await session.execute(
-                select(Run.id).where(
-                    Run.project_id == project.id, Run.skill_name == stage.skill_name
-                )
+                select(Run.id).where(run_condition, Run.skill_name == stage.skill_name)
             )
         ).scalars().all()
 
@@ -456,6 +535,7 @@ async def get_pipeline_status(session: AsyncSession, project_slug: str) -> dict[
 
     return {
         "project_slug": project_slug,
+        "instruction_id": instruction.id,
         "stages": stages_out,
         "latest_test_run": latest_test,
         "halt": halt,

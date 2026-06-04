@@ -20,6 +20,11 @@ docker compose up -d --build
 - **Frontend UI:** `http://localhost:5173`
 - **Langfuse Traces:** `http://localhost:3000` (Login: `admin@local.dev` / `password`)
 
+### 🗂️ Projects, Instructions & Resume
+A **project** is an empty group; you add one or more **instructions** to it (in the UI or via `auto_advance.txt`). Each instruction is a single prompt that runs the full pipeline inside its own isolated directory (`<project>/instructions/<summary-slug>/`) with its own artifacts, `src/`, and `tests/`. The UI shows every instruction grouped under its project and lets you expand a group to inspect each run.
+
+Runs are **resumable and non-breaking**: when an instruction (re)starts, the engine scans its `_bmad-output` folder, skips any stage whose artifact already exists, and continues from the first incomplete stage. Artifacts are discovered recursively, so BMAD's nested/timestamped outputs (e.g. `planning-artifacts/prds/prd-…/prd.md`) always surface.
+
 ### 🤖 Auto-Advance Choreography
 Instead of manually triggering pipeline stages, you can let the background worker orchestrate the entire BMAD 4-Phase Development Cycle for you. 
 
@@ -30,7 +35,7 @@ The backend continuously polls your active project workspaces. To trigger a run:
 run = true
 Build a fully responsive React login page with a dark mode toggle.
 ```
-The system will safely consume the file, flip it to `run = false`, and orchestrate:
+The system will safely consume the file, flip it to `run = false`, create a new instruction directory for the prompt, and orchestrate:
 1. **Analysis:** (`bmad-create-prd`)
 2. **Planning:** (`bmad-create-epics-and-stories` / FSD generation)
 3. **Solutioning:** (`bmad-create-architecture`)

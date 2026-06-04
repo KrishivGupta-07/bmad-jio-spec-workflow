@@ -24,12 +24,32 @@ STAGES: list[Stage] = [
 STAGE_BY_ID: dict[str, Stage] = {s.id: s for s in STAGES}
 STAGE_BY_SKILL: dict[str, Stage] = {s.skill_name: s for s in STAGES}
 
-ARTIFACT_PATHS: dict[str, str] = {
-    "prd": "_bmad-output/planning-artifacts/prd.md",
-    "fsd": "_bmad-output/planning-artifacts/fsd.md",
-    "architecture": "_bmad-output/planning-artifacts/architecture.md",
-    "test_strategy": "_bmad-output/planning-artifacts/test-strategy.md",
-    "last_run": "_bmad-output/specforge/last-run.json",
+# Root output folder BMAD writes into, relative to the working directory it runs in.
+OUTPUT_DIR = "_bmad-output"
+
+# BMAD writes planning artifacts into nested, timestamped directories
+# (e.g. _bmad-output/planning-artifacts/prds/prd-foo-2026-06-01/prd.md), and
+# sometimes flat. We discover them by globbing under OUTPUT_DIR and picking the
+# most recently modified match per kind.
+ARTIFACT_GLOBS: dict[str, list[str]] = {
+    "prd": ["**/prd.md"],
+    "fsd": ["**/fsd.md"],
+    "architecture": ["**/architecture.md"],
+    "test_strategy": ["**/test-strategy.md", "**/test_strategy.md"],
+    "last_run": ["**/last-run.json"],
+}
+
+# Valid artifact kinds (ordered) for API validation.
+ARTIFACT_KINDS: list[str] = list(ARTIFACT_GLOBS.keys())
+
+# Maps a pipeline stage to the planning artifact kind that proves it completed.
+# quick_dev/qa_tests are detected via the presence of src/ and tests/ instead.
+STAGE_ARTIFACT_KIND: dict[str, str] = {
+    "prd": "prd",
+    "fsd": "fsd",
+    "architecture": "architecture",
+    "test_strategy": "test_strategy",
+    "run_tests": "last_run",
 }
 
 ITERATION_CAP = 5

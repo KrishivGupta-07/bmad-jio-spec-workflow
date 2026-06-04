@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import artifacts, metrics, projects, runs, ws
+from app.api import instructions, metrics, projects, runs, ws
 from app.config import get_settings
 from app.db import init_db
 from app.services.workspace import kickoff_template_build
@@ -63,8 +63,8 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(projects.router, prefix="/api")
+    app.include_router(instructions.router, prefix="/api")
     app.include_router(runs.router, prefix="/api")
-    app.include_router(artifacts.router, prefix="/api")
     app.include_router(metrics.router, prefix="/api")
     app.include_router(ws.router, prefix="/api/ws")
     return app

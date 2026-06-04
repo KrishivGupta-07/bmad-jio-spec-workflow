@@ -1,33 +1,13 @@
 from __future__ import annotations
 
-from decimal import Decimal
-
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session
-from app.schemas import RunCreate, RunDetailOut, RunOut
-from app.services.pipeline import STAGE_BY_ID
-from app.services.run_manager import get_run_detail, start_stage_run
-from app.services.workspace import get_project_by_slug
+from app.schemas import RunDetailOut, RunOut
+from app.services.run_manager import get_run_detail
 
 router = APIRouter(prefix="/runs", tags=["runs"])
-
-
-@router.post("", response_model=RunOut)
-async def start_run(body: RunCreate, session: AsyncSession = Depends(get_session)) -> RunOut:
-    if body.stage not in STAGE_BY_ID:
-        raise HTTPException(status_code=400, detail=f"Unknown stage: {body.stage}")
-
-    project = await get_project_by_slug(session, body.project_slug)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-
-    try:
-        run = await start_stage_run(session, project, body.stage)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return RunOut.model_validate(run)
 
 
 @router.get("/{run_id}", response_model=RunDetailOut)

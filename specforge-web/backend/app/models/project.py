@@ -19,3 +19,4 @@ class Project(Base):
     runs: Mapped[list["Run"]] = relationship(back_populates="project")  # noqa: F821
     artifacts: Mapped[list["Artifact"]] = relationship(back_populates="project")  # noqa: F821
     test_runs: Mapped[list["TestRun"]] = relationship(back_populates="project")  # noqa: F821
+    instructions: Mapped[list["Instruction"]] = relationship(back_populates="project")  # noqa: F821

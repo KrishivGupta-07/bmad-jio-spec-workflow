@@ -11,12 +11,31 @@ from app.config import get_settings
 from app.db import async_session
 from app.models.project import Project
 from app.services.choreography import run_choreography
-from app.services.workspace import register_external_project
+from app.services.workspace import create_instruction, register_external_project
 
 logger = logging.getLogger(__name__)
 
-# Tracks running choreography tasks by project ID
+# Tracks running choreography tasks by project ID (one instruction at a time per project).
 active_choreographies: dict[int, asyncio.Task] = {}
+
+
+async def _run_instruction_choreography(project_id: int, instruction_text: str) -> None:
+    """Create a fresh instruction (its own dir) and run its pipeline."""
+    async with async_session() as session:
+        project = await session.get(Project, project_id)
+        if not project:
+            logger.error("Project %s not found for auto-advance.", project_id)
+            return
+        instruction = await create_instruction(session, project, instruction_text)
+        instruction_id = instruction.id
+    logger.info(
+        "Auto-advance created instruction %s (%s) for project %s",
+        instruction_id,
+        instruction.slug,
+        project_id,
+    )
+    await run_choreography(instruction_id)
+
 
 async def _check_and_start_choreography(project: Project) -> None:
     if project.id in active_choreographies:
@@ -42,18 +61,25 @@ async def _check_and_start_choreography(project: Project) -> None:
             return
 
         # Rewrite to run = false atomically using a temp file
-        instructions = "\n".join(lines[1:])
+        instructions = "\n".join(lines[1:]).strip()
         async with aiofiles.open(temp_path, "w") as f:
             await f.write(f"run = false\n{instructions}")
-        
+
         await aiofiles.os.replace(temp_path, file_path)
 
-        # Start choreography
-        logger.info(f"Triggering choreography for project {project.id}")
-        task = asyncio.create_task(run_choreography(project.id, instructions))
-        active_choreographies[project.id] = task
+        if not instructions:
+            logger.warning(
+                "auto_advance.txt for project %s was armed but had no instruction text.",
+                project.id,
+            )
+            return
 
-        # Add done callback to clear the guard
+        # Each arming becomes a NEW instruction with its own isolated directory.
+        logger.info("Triggering auto-advance instruction for project %s", project.id)
+        task = asyncio.create_task(
+            _run_instruction_choreography(project.id, instructions)
+        )
+        active_choreographies[project.id] = task
         task.add_done_callback(lambda t: active_choreographies.pop(project.id, None))
 
     except Exception as e:

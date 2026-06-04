@@ -11,7 +11,6 @@ export function ProjectsList() {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
-  const [productDescription, setProductDescription] = useState("");
   const setInstallerOutput = useUIStore((s) => s.setInstallerOutput);
   const installerOutput = useUIStore((s) => s.installerOutput);
 
@@ -27,18 +26,17 @@ export function ProjectsList() {
   });
 
   const createMut = useMutation({
-    mutationFn: () => api.createProject(name.trim(), productDescription.trim()),
+    mutationFn: () => api.createProject(name.trim()),
     onSuccess: (res) => {
       setInstallerOutput(res.installer_output);
       qc.invalidateQueries({ queryKey: ["projects"] });
       setOpen(false);
       setName("");
-      setProductDescription("");
       navigate(`/projects/${res.project.slug}`);
     },
   });
 
-  const canCreate = name.trim().length > 0 && productDescription.trim().length >= 20;
+  const canCreate = name.trim().length > 0;
 
   return (
     <div className="mx-auto max-w-5xl p-6">
@@ -122,20 +120,13 @@ export function ProjectsList() {
               placeholder="e.g. Team task board"
               value={name}
               onChange={(e) => setName(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">
-              Product description
-            </label>
-            <textarea
-              className="min-h-[140px] w-full rounded-md border px-3 py-2 text-sm"
-              placeholder="Describe what you want to build: who it's for, core features, constraints, and success criteria."
-              value={productDescription}
-              onChange={(e) => setProductDescription(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && canCreate) createMut.mutate();
+              }}
             />
             <p className="mt-1 text-xs text-muted-foreground">
-              This becomes the product brief for PRD creation (minimum 20 characters).
+              Create an empty project group, then add one or more instructions inside it.
+              Each instruction runs the full BMAD pipeline in its own folder.
             </p>
           </div>
           <Button

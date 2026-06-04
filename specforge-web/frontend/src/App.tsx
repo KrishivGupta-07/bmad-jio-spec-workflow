@@ -14,6 +14,10 @@ export function App() {
         <Routes>
           <Route path="/" element={<ProjectsList />} />
           <Route path="/projects/:slug" element={<ProjectDashboard />} />
+          <Route
+            path="/projects/:slug/instructions/:instructionId/runs/:runId"
+            element={<RunDetail />}
+          />
           <Route path="/projects/:slug/runs/:runId" element={<RunDetail />} />
         </Routes>
       </BrowserRouter>

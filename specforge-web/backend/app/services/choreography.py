@@ -1,15 +1,11 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 import uuid
 from pathlib import Path
-from typing import Any
-
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import async_session
+from app.models.instruction import Instruction, InstructionStatus
 from app.models.project import Project
 from app.models.run import Run, RunStatus
 from app.services.pipeline import (
@@ -18,7 +14,7 @@ from app.services.pipeline import (
     build_prd_trigger,
 )
 from app.services.run_manager import _build_handoff, execute_run
-from app.services.workspace import read_last_run_json
+from app.services.workspace import read_last_run_json, stage_completed
 
 logger = logging.getLogger(__name__)
 
@@ -34,26 +30,27 @@ LINEAR_STAGE_IDS = [
 ]
 
 
-def _stage_trigger(stage_id: str, instructions: str, product_description: str | None) -> str:
-    """Build the trigger for a stage, prefixing the auto_advance instructions."""
+def _stage_trigger(stage_id: str, brief: str) -> str:
+    """Build the trigger for a stage, prefixing the instruction brief."""
     stage = STAGE_BY_ID[stage_id]
     if stage_id == "prd":
-        base = build_prd_trigger(product_description) if product_description else ""
-    else:
-        base = stage.trigger_phrase
-    if instructions.strip():
-        return f"Instructions:\n{instructions}\n\n{base}".strip()
+        return build_prd_trigger(brief) if brief else stage.trigger_phrase
+    base = stage.trigger_phrase
+    if brief.strip():
+        return f"Instructions:\n{brief}\n\n{base}".strip()
     return base
 
+
 async def _create_and_execute_run(
-    project: Project,
+    instruction: Instruction,
     stage_id: str,
     skill_name: str,
     trigger_phrase: str,
 ) -> Run:
     session_uuid = str(uuid.uuid4())
     run = Run(
-        project_id=project.id,
+        project_id=instruction.project_id,
+        instruction_id=instruction.id,
         skill_name=skill_name,
         trigger_phrase=trigger_phrase,
         status=RunStatus.pending,
@@ -64,72 +61,124 @@ async def _create_and_execute_run(
         await session.commit()
         await session.refresh(run)
 
-    # Note: execute_run catches exceptions and sets status to failure internally if it crashes
-    await execute_run(run.id, project.id, stage_id, trigger_phrase, skill_name)
+    # execute_run sets status to failure internally if it crashes.
+    await execute_run(run.id, instruction.id, stage_id, trigger_phrase, skill_name)
 
     async with async_session() as session:
         run = await session.get(Run, run.id)
     return run
 
-async def run_choreography(project_id: int, instructions: str) -> None:
-    logger.info(f"Starting choreography for project {project_id} with instructions: {instructions}")
 
+async def _set_instruction_status(instruction_id: int, status: InstructionStatus) -> None:
     async with async_session() as session:
-        project = await session.get(Project, project_id)
-        if not project:
-            logger.error(f"Project {project_id} not found for choreography.")
+        instruction = await session.get(Instruction, instruction_id)
+        if instruction:
+            instruction.status = status
+            await session.commit()
+
+
+async def run_choreography(instruction_id: int) -> None:
+    """Run (or resume) the full pipeline for a single instruction.
+
+    Stages whose outputs already exist on disk are skipped, so a partially
+    completed instruction continues from where it left off instead of breaking.
+    """
+    async with async_session() as session:
+        instruction = await session.get(Instruction, instruction_id)
+        if not instruction:
+            logger.error("Instruction %s not found for choreography.", instruction_id)
             return
+        project = await session.get(Project, instruction.project_id)
+        if not project:
+            logger.error("Project for instruction %s not found.", instruction_id)
+            return
+        brief = (instruction.instruction_text or project.product_description or "").strip()
+        base_path = Path(instruction.path)
+        instr_slug = instruction.slug
 
-    # Linear pass: run each web-UI pipeline stage in order.
-    # PRD -> FSD -> Architecture -> Test strategy -> Implement -> Generate e2e tests -> Run tests
+    await _set_instruction_status(instruction_id, InstructionStatus.running)
+
+    # Linear pass: run each web-UI pipeline stage in order, skipping any whose
+    # artifacts already exist (resume support).
     for stage_id in LINEAR_STAGE_IDS:
-        stage = STAGE_BY_ID[stage_id]
-        trigger = _stage_trigger(stage_id, instructions, project.product_description)
-        run = await _create_and_execute_run(project, stage_id, stage.skill_name, trigger)
+        if stage_completed(base_path, stage_id):
+            logger.info(
+                "Skipping stage '%s' for instruction %s (%s): output already exists.",
+                stage_id,
+                instruction_id,
+                instr_slug,
+            )
+            continue
 
-        # run_tests "failure" means tests failed; don't abort, enter the fix loop below.
+        stage = STAGE_BY_ID[stage_id]
+        trigger = _stage_trigger(stage_id, brief)
+        async with async_session() as session:
+            instruction = await session.get(Instruction, instruction_id)
+        run = await _create_and_execute_run(instruction, stage_id, stage.skill_name, trigger)
+
+        # run_tests "failure" means tests failed; don't abort, enter the fix loop.
         if run.status != RunStatus.success and stage_id != "run_tests":
             logger.error(
-                f"Choreography aborted: stage '{stage_id}' failed for project {project_id}"
+                "Choreography aborted: stage '%s' failed for instruction %s",
+                stage_id,
+                instruction_id,
             )
+            await _set_instruction_status(instruction_id, InstructionStatus.failure)
             return
 
     # Implementation loop: patch src/ from failing tests and re-run, mirroring the
     # manual quick-dev <-> run-tests handoff (capped at ITERATION_CAP iterations).
-    project_path = Path(project.path)
     iteration = 1  # run_tests already executed once in the linear pass
 
     while iteration < ITERATION_CAP:
-        last_run = read_last_run_json(project_path)
+        last_run = read_last_run_json(base_path)
         if not last_run:
-            logger.error(f"Choreography aborted: Missing last-run.json for project {project_id}")
+            logger.error(
+                "Choreography aborted: Missing last-run.json for instruction %s",
+                instruction_id,
+            )
+            await _set_instruction_status(instruction_id, InstructionStatus.failure)
             return
 
         handoff = _build_handoff(last_run)
         if not handoff:
             logger.info(
-                f"Choreography completed successfully for project {project_id}. All tests passed."
+                "Choreography completed successfully for instruction %s. All tests passed.",
+                instruction_id,
             )
+            await _set_instruction_status(instruction_id, InstructionStatus.success)
             return
 
         iteration += 1
         logger.info(
-            f"Choreography Implementation Loop - Iteration {iteration} for project {project_id}"
+            "Choreography Implementation Loop - Iteration %s for instruction %s",
+            iteration,
+            instruction_id,
         )
 
-        # Patch src/ only based on the last-run.json handoff.
-        dev_trigger = f"Instructions:\n{instructions}\n\n{handoff}"
-        run = await _create_and_execute_run(project, "quick_dev", "bmad-quick-dev", dev_trigger)
+        async with async_session() as session:
+            instruction = await session.get(Instruction, instruction_id)
+
+        dev_trigger = f"Instructions:\n{brief}\n\n{handoff}"
+        run = await _create_and_execute_run(
+            instruction, "quick_dev", "bmad-quick-dev", dev_trigger
+        )
         if run.status != RunStatus.success:
             logger.error(
-                f"Choreography aborted: Quick Dev failed for project {project_id} at iteration {iteration}"
+                "Choreography aborted: Quick Dev failed for instruction %s at iteration %s",
+                instruction_id,
+                iteration,
             )
+            await _set_instruction_status(instruction_id, InstructionStatus.failure)
             return
 
-        # Re-run the test suite.
-        test_trigger = _stage_trigger("run_tests", instructions, project.product_description)
-        await _create_and_execute_run(project, "run_tests", "bmad-run-tests", test_trigger)
+        test_trigger = _stage_trigger("run_tests", brief)
+        await _create_and_execute_run(
+            instruction, "run_tests", "bmad-run-tests", test_trigger
+        )
 
     logger.warning(
-        f"Choreography finished for project {project_id} at iteration cap with tests still failing."
+        "Choreography finished for instruction %s at iteration cap with tests still failing.",
+        instruction_id,
     )
+    await _set_instruction_status(instruction_id, InstructionStatus.halted)

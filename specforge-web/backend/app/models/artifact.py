@@ -22,6 +22,9 @@ class Artifact(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), nullable=False, index=True)
+    instruction_id: Mapped[int | None] = mapped_column(
+        ForeignKey("instructions.id"), nullable=True, index=True
+    )
     kind: Mapped[ArtifactKind] = mapped_column(Enum(ArtifactKind), nullable=False)
     path: Mapped[str] = mapped_column(String(1024), nullable=False)
     sha256: Mapped[str] = mapped_column(String(64), nullable=False, default="")

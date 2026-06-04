@@ -11,6 +11,9 @@ class TestRun(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), nullable=False, index=True)
+    instruction_id: Mapped[int | None] = mapped_column(
+        ForeignKey("instructions.id"), nullable=True, index=True
+    )
     iteration: Mapped[int] = mapped_column(Integer, nullable=False)
     passed: Mapped[int] = mapped_column(Integer, default=0)
     failed: Mapped[int] = mapped_column(Integer, default=0)

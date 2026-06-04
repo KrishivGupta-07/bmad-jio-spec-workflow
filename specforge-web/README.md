@@ -6,8 +6,11 @@ Local web interface and orchestration backend for the BMAD-Method workflow exten
 
 ## ✨ Key Features
 
-- **Integrated Frontend UI:** A sleek, local dashboard to manage project workspaces, view generated artifacts (PRDs, FSDs, architectures), and manually trigger individual pipeline stages.
-- **Auto-Advance Agent Choreography:** A background polling system that fully automates the BMAD 4-Phase Development Cycle (Analysis, Planning, Solutioning, Implementation) based on a single instruction file.
+- **Projects as groups of instructions:** A project is an empty group (no prompt needed to create). You then add one or more **instructions** to it. Each instruction is a single prompt that runs the full BMAD pipeline in its own **isolated directory** (`<project>/instructions/<summary-slug>/`) with its own artifacts, `src/`, and `tests/`. The UI groups all instructions under their project in an expandable (shadcn accordion) view.
+- **Integrated Frontend UI:** A sleek, local dashboard to manage project groups, add instructions, view generated artifacts (PRDs, FSDs, architectures), watch live runs, and trigger/resume pipeline stages.
+- **Resumable & non-breaking:** When an instruction (re)starts — manually, on server restart, or via auto-advance — the engine cross-references the output folder against the workflow and **skips stages whose artifacts already exist**, continuing from the first incomplete stage instead of breaking.
+- **Robust artifact discovery:** Artifacts are discovered by scanning `_bmad-output` recursively (BMAD writes to nested, timestamped folders such as `planning-artifacts/prds/prd-…/prd.md`), so PRDs/FSDs/architecture/test-strategy/last-run always surface in the UI.
+- **Auto-Advance Agent Choreography:** A background polling system that fully automates the BMAD 4-Phase Development Cycle (Analysis, Planning, Solutioning, Implementation). Each time `auto_advance.txt` is armed, its text becomes a **new instruction** with its own directory.
 - **Native Langfuse Observability:** Deep integration with Langfuse v2. All runs emit detailed traces mapped directly to genuine BMAD skills (e.g., `bmad-create-prd`), capturing tokens, latencies, and dollar costs automatically.
 - **Unified Docker Deployment:** A single `docker compose` stack effortlessly spins up PostgreSQL, the Langfuse Dashboard, the FastAPI Backend, and the React Frontend.
 - **MCP Server:** Exposes Model Context Protocol (MCP) over SSE for external tooling integration.
@@ -61,7 +64,7 @@ run = true
 Build a fully responsive React login page with a dark mode toggle.
 ```
 
-The background worker will safely consume the file (flipping it to `run = false`), then run **exactly the same pipeline stages as the web UI**, in order:
+The background worker will safely consume the file (flipping it to `run = false`), create a **new instruction** (a directory named after a summary of the prompt, e.g. `instructions/build-fully-responsive-react-login/`), seed it with BMAD scaffolding, write the prompt as that instruction's product brief, and then run **exactly the same pipeline stages as the web UI**, in order:
 1. **Create PRD** (`bmad-create-prd`)
 2. **Create FSD from my PRD** (`bmad-create-fsd`)
 3. **Create architecture** (`bmad-create-architecture`)

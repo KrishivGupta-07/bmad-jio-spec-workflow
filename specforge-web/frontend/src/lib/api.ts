@@ -10,6 +10,7 @@ export type Project = {
 export type Run = {
   id: number;
   project_id: number;
+  instruction_id: number | null;
   skill_name: string;
   trigger_phrase: string;
   status: string;
@@ -17,6 +18,18 @@ export type Run = {
   ended_at: string | null;
   iteration: number | null;
   claude_session_id: string | null;
+};
+
+export type Instruction = {
+  id: number;
+  project_id: number;
+  slug: string;
+  title: string;
+  instruction_text: string;
+  path: string;
+  is_default: boolean;
+  status: string;
+  created_at: string;
 };
 
 export type Message = {
@@ -50,16 +63,6 @@ export type RunDetail = Run & {
   auth_error: boolean;
 };
 
-export type Artifact = {
-  id: number;
-  project_id: number;
-  kind: string;
-  path: string;
-  sha256: string;
-  updated_at: string;
-  content?: string;
-};
-
 export type StageStatus = {
   stage_id: string;
   skill_name: string;
@@ -70,6 +73,17 @@ export type StageStatus = {
   prompt_tokens: number;
   completion_tokens: number;
   cost_usd: string;
+};
+
+export type Artifact = {
+  id: number;
+  project_id: number;
+  instruction_id: number | null;
+  kind: string;
+  path: string;
+  sha256: string;
+  updated_at: string;
+  content?: string;
 };
 
 export type TestRun = {
@@ -84,6 +98,7 @@ export type TestRun = {
 
 export type PipelineStatus = {
   project_slug: string;
+  instruction_id: number | null;
   stages: StageStatus[];
   latest_test_run: TestRun | null;
   halt: boolean;
@@ -92,6 +107,7 @@ export type PipelineStatus = {
 
 export type ProjectMetrics = {
   project_slug: string;
+  instruction_id: number | null;
   total_runs: number;
   prompt_tokens: number;
   completion_tokens: number;
@@ -113,17 +129,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json();
 }
 
+export type InstructionDetail = Instruction & {
+  project_slug: string;
+  project_name: string;
+};
+
 export const api = {
   listProjects: () => request<Project[]>("/projects"),
-  createProject: (name: string, productDescription: string) =>
+  createProject: (name: string) =>
     request<{ project: Project; installer_output: string }>("/projects", {
       method: "POST",
-      body: JSON.stringify({ name, product_description: productDescription }),
-    }),
-  updateProject: (slug: string, productDescription: string) =>
-    request<Project>(`/projects/${slug}`, {
-      method: "PATCH",
-      body: JSON.stringify({ product_description: productDescription }),
+      body: JSON.stringify({ name }),
     }),
   getInstallStatus: (slug: string) =>
     request<{ ready: boolean; running: boolean; log: string | null }>(
@@ -134,21 +150,41 @@ export const api = {
       "/projects/template/status",
     ),
   getProject: (slug: string) => request<Project>(`/projects/${slug}`),
-  startRun: (project_slug: string, stage: string) =>
-    request<Run>("/runs", {
+
+  // Instructions (one prompt -> its own dir + pipeline within a project group)
+  listInstructions: (slug: string) =>
+    request<Instruction[]>(`/projects/${slug}/instructions`),
+  createInstruction: (slug: string, text: string) =>
+    request<Instruction>(`/projects/${slug}/instructions`, {
       method: "POST",
-      body: JSON.stringify({ project_slug, stage }),
+      body: JSON.stringify({ text }),
     }),
+  getInstruction: (instructionId: number) =>
+    request<InstructionDetail>(`/instructions/${instructionId}`),
+  advanceInstruction: (instructionId: number) =>
+    request<InstructionDetail>(`/instructions/${instructionId}/advance`, {
+      method: "POST",
+    }),
+  startRun: (instructionId: number, stage: string) =>
+    request<Run>(`/instructions/${instructionId}/runs`, {
+      method: "POST",
+      body: JSON.stringify({ stage }),
+    }),
+  getPipeline: (instructionId: number) =>
+    request<PipelineStatus>(`/instructions/${instructionId}/pipeline`),
+  getMetrics: (instructionId: number) =>
+    request<ProjectMetrics>(`/instructions/${instructionId}/metrics`),
+  listArtifacts: (instructionId: number) =>
+    request<Artifact[]>(`/instructions/${instructionId}/artifacts`),
+  readArtifact: (instructionId: number, kind: string) =>
+    request<Artifact>(`/instructions/${instructionId}/artifacts/${kind}`),
+
   getRun: (runId: number) => request<RunDetail>(`/runs/${runId}`),
-  getPipeline: (slug: string) => request<PipelineStatus>(`/projects/${slug}/pipeline`),
-  getMetrics: (slug: string) => request<ProjectMetrics>(`/metrics/projects/${slug}`),
-  listArtifacts: (slug: string) => request<Artifact[]>(`/projects/${slug}/artifacts`),
-  readArtifact: (slug: string, kind: string) =>
-    request<Artifact>(`/projects/${slug}/artifacts/${kind}`),
-  getLastRun: (slug: string) => request<Record<string, unknown>>(`/projects/${slug}/last-run`),
-  listFailures: (slug: string) =>
+  getLastRun: (instructionId: number) =>
+    request<Record<string, unknown>>(`/instructions/${instructionId}/last-run`),
+  listFailures: (instructionId: number) =>
     request<{ fr_id: string | null; test_name: string; message: string }[]>(
-      `/projects/${slug}/failures`,
+      `/instructions/${instructionId}/failures`,
     ),
 };
 

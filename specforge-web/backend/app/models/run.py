@@ -20,6 +20,9 @@ class Run(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), nullable=False, index=True)
+    instruction_id: Mapped[int | None] = mapped_column(
+        ForeignKey("instructions.id"), nullable=True, index=True
+    )
     skill_name: Mapped[str] = mapped_column(String(128), nullable=False)
     trigger_phrase: Mapped[str] = mapped_column(String(512), nullable=False)
     status: Mapped[RunStatus] = mapped_column(

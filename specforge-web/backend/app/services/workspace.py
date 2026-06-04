@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.models.artifact import Artifact, ArtifactKind
+from app.models.instruction import Instruction, InstructionStatus
 from app.models.project import Project
 
 logger = logging.getLogger(__name__)
@@ -22,6 +23,14 @@ logger = logging.getLogger(__name__)
 TEMPLATE_DIR_NAME = "_bmad-template"
 TEMPLATE_COPY_DIRS = ("_bmad", ".agents")
 PRODUCT_BRIEF_PATH = "docs/product-brief.md"
+INSTRUCTIONS_DIR_NAME = "instructions"
+
+# Short words ignored when summarizing an instruction into a directory slug.
+_STOPWORDS = {
+    "a", "an", "the", "and", "or", "to", "of", "for", "in", "on", "with",
+    "that", "this", "it", "is", "are", "be", "as", "at", "by", "should",
+    "would", "can", "will", "make", "create", "build", "add", "allow", "your",
+}
 
 _template_lock = asyncio.Lock()
 _template_build_task: asyncio.Task[None] | None = None
@@ -210,8 +219,13 @@ def write_product_brief(project_path: Path, description: str) -> Path:
 
 
 async def create_project(
-    session: AsyncSession, name: str, product_description: str
+    session: AsyncSession, name: str, product_description: str | None = None
 ) -> tuple[Project, str]:
+    """Create an empty project *group*.
+
+    A project no longer requires a prompt. Instructions are added afterwards and
+    each one runs the full pipeline in its own isolated directory.
+    """
     settings = get_settings()
     module_src = settings.specforge_module_path.resolve()
     if not module_src.is_dir():
@@ -231,19 +245,139 @@ async def create_project(
     project_path.mkdir(parents=True)
 
     await _seed_project_from_template(project_path, module_src)
-    write_product_brief(project_path, product_description)
+    description = (product_description or "").strip()
+    if description:
+        write_product_brief(project_path, description)
 
     project = Project(
         name=name,
         slug=slug,
         path=str(project_path),
-        product_description=product_description.strip(),
+        product_description=description or None,
     )
     session.add(project)
     await session.commit()
     await session.refresh(project)
 
-    return project, "Project created and ready for pipeline stages."
+    return project, "Project created. Add an instruction to start the pipeline."
+
+
+def summarize_instruction(text: str) -> tuple[str, str]:
+    """Return a (title, slug) summary derived from an instruction prompt."""
+    cleaned = " ".join((text or "").split())
+    if not cleaned:
+        return "Untitled instruction", "instruction"
+
+    # Title: first sentence, capped to a readable length.
+    title = cleaned.split(". ")[0].strip().rstrip(".")
+    if len(title) > 80:
+        title = title[:77].rstrip() + "…"
+
+    # Slug: a few meaningful words from the start of the instruction.
+    words = [w for w in slugify(cleaned).split("-") if w]
+    meaningful = [w for w in words if w not in _STOPWORDS] or words
+    slug = "-".join(meaningful[:6]) or "instruction"
+    return title or "Untitled instruction", slug
+
+
+async def get_instruction_by_slug(
+    session: AsyncSession, project_id: int, slug: str
+) -> Instruction | None:
+    result = await session.execute(
+        select(Instruction).where(
+            Instruction.project_id == project_id, Instruction.slug == slug
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def create_instruction(
+    session: AsyncSession, project: Project, text: str
+) -> Instruction:
+    """Create an instruction with its own seeded directory and product brief."""
+    instruction_text = (text or "").strip()
+    if not instruction_text:
+        raise ValueError("Instruction text cannot be empty")
+
+    title, base_slug = summarize_instruction(instruction_text)
+    slug = base_slug
+    counter = 1
+    while await get_instruction_by_slug(session, project.id, slug):
+        slug = f"{base_slug}-{counter}"
+        counter += 1
+
+    project_path = Path(project.path)
+    instr_dir = project_path / INSTRUCTIONS_DIR_NAME / slug
+    instr_dir.mkdir(parents=True, exist_ok=True)
+
+    module_src = get_settings().specforge_module_path.resolve()
+    await _seed_project_from_template(instr_dir, module_src)
+    write_product_brief(instr_dir, instruction_text)
+
+    instruction = Instruction(
+        project_id=project.id,
+        slug=slug,
+        title=title,
+        instruction_text=instruction_text,
+        path=str(instr_dir),
+        is_default=False,
+        status=InstructionStatus.pending,
+    )
+    session.add(instruction)
+    await session.commit()
+    await session.refresh(instruction)
+    return instruction
+
+
+async def ensure_default_instruction(
+    session: AsyncSession, project: Project
+) -> Instruction:
+    """Return the project's default instruction, creating it if needed.
+
+    Legacy projects wrote artifacts directly into the project root. The default
+    instruction adopts that root directory so those artifacts keep showing up and
+    pre-existing runs (with no instruction_id) attach to it.
+    """
+    result = await session.execute(
+        select(Instruction).where(
+            Instruction.project_id == project.id, Instruction.is_default.is_(True)
+        )
+    )
+    existing = result.scalar_one_or_none()
+    if existing:
+        return existing
+
+    title = project.name or "Default"
+    instruction = Instruction(
+        project_id=project.id,
+        slug="default",
+        title=title,
+        instruction_text=(project.product_description or "").strip(),
+        path=str(Path(project.path)),
+        is_default=True,
+        status=InstructionStatus.pending,
+    )
+    session.add(instruction)
+    await session.commit()
+    await session.refresh(instruction)
+    return instruction
+
+
+async def list_instructions(
+    session: AsyncSession, project: Project
+) -> list[Instruction]:
+    result = await session.execute(
+        select(Instruction)
+        .where(Instruction.project_id == project.id)
+        .order_by(Instruction.created_at.asc())
+    )
+    instructions = list(result.scalars().all())
+
+    # Surface legacy root artifacts via an adopted default instruction.
+    if not instructions and discover_artifacts(Path(project.path)):
+        instructions = [await ensure_default_instruction(session, project)]
+
+    return instructions
 
 
 def bmad_install_status(project_path: Path) -> dict[str, Any]:
@@ -385,8 +519,52 @@ async def update_product_description(
     return project
 
 
-async def sync_artifacts(session: AsyncSession, project: Project) -> list[Artifact]:
-    project_path = Path(project.path)
+def discover_artifact_path(base_path: Path, kind: str) -> Path | None:
+    """Locate an artifact of ``kind`` anywhere under ``base_path/_bmad-output``.
+
+    BMAD writes planning artifacts into nested, timestamped directories, so we
+    glob for the known filenames and return the most recently modified match.
+    """
+    from app.services.pipeline import ARTIFACT_GLOBS, OUTPUT_DIR
+
+    patterns = ARTIFACT_GLOBS.get(kind)
+    if not patterns:
+        return None
+    output_root = base_path / OUTPUT_DIR
+    if not output_root.is_dir():
+        return None
+
+    candidates: list[Path] = []
+    for pattern in patterns:
+        candidates.extend(p for p in output_root.glob(pattern) if p.is_file())
+    if not candidates:
+        return None
+    return max(candidates, key=lambda p: p.stat().st_mtime)
+
+
+def discover_artifacts(base_path: Path) -> dict[str, Path]:
+    from app.services.pipeline import ARTIFACT_GLOBS
+
+    found: dict[str, Path] = {}
+    for kind in ARTIFACT_GLOBS:
+        path = discover_artifact_path(base_path, kind)
+        if path is not None:
+            found[kind] = path
+    return found
+
+
+async def sync_artifacts(
+    session: AsyncSession, project: Project, instruction: "Instruction | None" = None
+) -> list[Artifact]:
+    """Discover artifacts on disk for an instruction and upsert them.
+
+    When ``instruction`` is omitted, the project's default instruction is used so
+    legacy/root artifacts continue to surface.
+    """
+    if instruction is None:
+        instruction = await ensure_default_instruction(session, project)
+
+    base_path = Path(instruction.path)
     updated: list[Artifact] = []
 
     kind_map = {
@@ -397,17 +575,12 @@ async def sync_artifacts(session: AsyncSession, project: Project) -> list[Artifa
         "last_run": ArtifactKind.last_run,
     }
 
-    from app.services.pipeline import ARTIFACT_PATHS
-
-    for key, rel in ARTIFACT_PATHS.items():
-        full = project_path / rel
-        if not full.exists():
-            continue
+    for key, full in discover_artifacts(base_path).items():
         digest = _sha256(full)
         kind = kind_map[key]
         existing = await session.execute(
             select(Artifact).where(
-                Artifact.project_id == project.id,
+                Artifact.instruction_id == instruction.id,
                 Artifact.kind == kind,
             )
         )
@@ -418,6 +591,7 @@ async def sync_artifacts(session: AsyncSession, project: Project) -> list[Artifa
         else:
             artifact = Artifact(
                 project_id=project.id,
+                instruction_id=instruction.id,
                 kind=kind,
                 path=str(full),
                 sha256=digest,
@@ -429,14 +603,9 @@ async def sync_artifacts(session: AsyncSession, project: Project) -> list[Artifa
     return updated
 
 
-def read_artifact_file(project_path: Path, kind: str) -> dict[str, Any] | None:
-    from app.services.pipeline import ARTIFACT_PATHS
-
-    rel = ARTIFACT_PATHS.get(kind)
-    if not rel:
-        return None
-    full = project_path / rel
-    if not full.exists():
+def read_artifact_file(base_path: Path, kind: str) -> dict[str, Any] | None:
+    full = discover_artifact_path(base_path, kind)
+    if not full or not full.exists():
         return None
     content = full.read_text(encoding="utf-8", errors="replace")
     return {
@@ -447,11 +616,38 @@ def read_artifact_file(project_path: Path, kind: str) -> dict[str, Any] | None:
     }
 
 
-def read_last_run_json(project_path: Path) -> dict[str, Any] | None:
-    path = project_path / "_bmad-output" / "specforge" / "last-run.json"
-    if not path.exists():
+def read_last_run_json(base_path: Path) -> dict[str, Any] | None:
+    path = discover_artifact_path(base_path, "last_run")
+    if not path or not path.exists():
         return None
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def stage_completed(base_path: Path, stage_id: str) -> bool:
+    """True when a stage's output already exists on disk under ``base_path``.
+
+    Used to resume a partially-completed instruction instead of restarting from
+    the beginning (or breaking).
+    """
+    from app.services.pipeline import STAGE_ARTIFACT_KIND
+
+    if stage_id == "quick_dev":
+        return _dir_has_files(base_path / "src")
+    if stage_id == "qa_tests":
+        return _dir_has_files(base_path / "tests")
+    kind = STAGE_ARTIFACT_KIND.get(stage_id)
+    if not kind:
+        return False
+    return discover_artifact_path(base_path, kind) is not None
+
+
+def _dir_has_files(path: Path) -> bool:
+    if not path.is_dir():
+        return False
+    for child in path.rglob("*"):
+        if child.is_file():
+            return True
+    return False
 
 
 def parse_failures(last_run: dict[str, Any]) -> list[dict[str, str | None]]:
