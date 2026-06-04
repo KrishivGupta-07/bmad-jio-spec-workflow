@@ -40,6 +40,31 @@ spec:
   lifecycle: experimental
   owner: user:default/krishiv
   system: specforge
+  # Link the component to the API entity it exposes (shows up in the "APIs" tab).
+  providesApis:
+    - specforge-web-api
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: specforge-web-api
+  description: >-
+    HTTP API exposed by specforge-web (FastAPI). Auto-generated OpenAPI spec.
+  annotations:
+    github.com/project-slug: KrishivGupta-07/bmad-jio-spec-workflow
+spec:
+  type: openapi
+  lifecycle: experimental
+  owner: user:default/krishiv
+  system: specforge
+  # $text loads the OpenAPI document committed next to this file (repo root).
+  # TODO: regenerate openapi.json from FastAPI when the API changes, e.g.:
+  #   curl -s http://localhost:8000/openapi.json -o openapi.json
+  # Alternatively reference the live spec directly:
+  #   definition:
+  #     $text: http://localhost:8000/openapi.json   # only while specforge-web runs
+  definition:
+    $text: ./openapi.json
 ---
 apiVersion: backstage.io/v1alpha1
 kind: Component
