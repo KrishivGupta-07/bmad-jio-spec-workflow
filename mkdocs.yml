@@ -1,0 +1,13 @@
+# =============================================================================
+# TODO: Commit this file as `mkdocs.yml` to the ROOT of the specforge repo
+#       (alongside catalog-info.yaml) so Backstage TechDocs can render the docs.
+# Docker must be running locally (techdocs.generator.runIn: docker).
+# =============================================================================
+site_name: specforge
+site_description: BMAD-Method spec workflow platform (FastAPI + React + Langfuse)
+
+nav:
+  - Home: index.md
+
+plugins:
+  - techdocs-core

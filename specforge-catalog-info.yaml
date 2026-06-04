@@ -1,0 +1,57 @@
+# =============================================================================
+# specforge catalog-info.yaml
+# -----------------------------------------------------------------------------
+# TODO: Commit this file as `catalog-info.yaml` to the ROOT of the specforge repo
+#       on the `main` branch:
+#         https://github.com/KrishivGupta-07/bmad-jio-spec-workflow
+#
+# The Backstage portal points a catalog location at:
+#   https://github.com/KrishivGupta-07/bmad-jio-spec-workflow/blob/main/catalog-info.yaml
+# so once this is committed there, the specforge System + Components appear in
+# the catalog with ownership resolved to user:default/krishiv (defined locally
+# in this portal's catalog/org.yaml).
+# =============================================================================
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: specforge
+  description: >-
+    BMAD-Method spec workflow platform (FastAPI + React + Langfuse + Docker
+    Compose) that wraps BMAD-Method workflows.
+  annotations:
+    github.com/project-slug: KrishivGupta-07/bmad-jio-spec-workflow
+spec:
+  owner: user:default/krishiv
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: specforge-web
+  description: >-
+    FastAPI + React web backend that drives BMAD-Method spec workflows, backed
+    by Langfuse for observability. Runs via Docker Compose.
+  annotations:
+    # project-slug powers GitHub-related catalog features (links, insights, etc.)
+    github.com/project-slug: KrishivGupta-07/bmad-jio-spec-workflow
+    # techdocs-ref: dir:. tells TechDocs to build docs from this repo's mkdocs.yml
+    backstage.io/techdocs-ref: dir:.
+spec:
+  type: service
+  lifecycle: experimental
+  owner: user:default/krishiv
+  system: specforge
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: specforge-module
+  description: >-
+    Reusable library code / BMAD-Method workflow modules used by specforge-web.
+  annotations:
+    github.com/project-slug: KrishivGupta-07/bmad-jio-spec-workflow
+    backstage.io/techdocs-ref: dir:.
+spec:
+  type: library
+  lifecycle: experimental
+  owner: user:default/krishiv
+  system: specforge
